@@ -58,7 +58,7 @@ export default {
           iconSrc:     grafanaSrc,
           label:       'monitoring.overview.linkedList.grafana.label',
           description: 'monitoring.overview.linkedList.grafana.description',
-          link:        `/k8s/clusters/${ currentCluster.id }/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy`,
+          link:        '',
         },
         {
           enabled:     false,
