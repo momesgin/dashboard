@@ -39,6 +39,6 @@ describe('fx: getClusterPrefix', () => {
   it('empty monitoring version, local cluster', () => {
     const prefix = getClusterPrefix('', 'local');
 
-    expect(prefix).toStrictEqual('/k8s/clusters/local');
+    expect(prefix).toStrictEqual('');
   });
 });
