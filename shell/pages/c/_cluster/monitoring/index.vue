@@ -109,7 +109,7 @@ export default {
           el => el.group === 'prometheus'
         );
 
-        grafanaMatch.link = `${ getClusterPrefix(hash.app?.currentVersion || '', currentCluster.id) }/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy`;
+        grafanaMatch.link = `${ getClusterPrefix(hash.app?.currentVersion || '', currentCluster.id) }/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-grafana:80/proxy/`;
         const alertmanager = findBy(
           hash.endpoints,
           'id',
