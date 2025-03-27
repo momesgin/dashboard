@@ -14,12 +14,11 @@ export default class ActionMenuPo extends ComponentPo {
   }
 
   menuItemNames() {
-    return this.self().get('[dropdown-menu-item]').then(($els) => {
-      return (
-        Cypress.$.makeArray($els)
-          // and extract inner text from each
-          .map((el) => el.innerText)
-      );
-    });
+    return this.self()
+      .get('[dropdown-menu-item]')
+      .invoke('toArray')
+      .then((elements: HTMLElement[]) => {
+        return elements.map((el) => el.innerText);
+      });
   }
 }
