@@ -92,7 +92,7 @@ export default {
     EventsTable,
     SimpleBox,
     Certificates,
-    TabTitle
+    TabTitle,
   },
 
   mixins: [metricPoller],
