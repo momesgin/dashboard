@@ -1,12 +1,11 @@
 import { ref } from 'vue';
 import { ActionDefinition, ActionIntent } from '../models/action-engine';
 
-// The Gemini API URL for the gemini-pro model
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+// The Gemini API URL for the gemini-2.5-flash model
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-// A simple (and insecure) way to get the API key for this hackweek project.
 // In a real app, this would be handled on a backend server.
-const API_KEY = process.env.GEMINI_API_KEY || 'test-api-key';
+const API_KEY = process.env.HACKWEEK_GEMINI_API_KEY;
 
 /**
  * A composable to interact with the Google Gemini AI.
@@ -54,7 +53,7 @@ export function useAI() {
    */
   const getIntentFromAI = async(userQuery: string, availableActions: ActionDefinition[]): Promise<ActionIntent | null> => {
     if (!API_KEY) {
-      error.value = 'GEMINI_API_KEY environment variable not set.';
+      error.value = 'HACKWEEK_GEMINI_API_KEY environment variable not set. Please create a .env file in the project root.';
       console.error(error.value);
 
       return null;
