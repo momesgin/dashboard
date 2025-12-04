@@ -1,5 +1,5 @@
 <script>
-import { defineComponent, ref, watch } from 'vue';
+import { defineComponent } from 'vue';
 import { mapGetters } from 'vuex';
 import debounce from 'lodash/debounce';
 import { MANAGEMENT, NORMAN, STEVE } from '@shell/config/types';
@@ -31,12 +31,7 @@ import {
   RcDropdownTrigger
 } from '@components/RcDropdown';
 import { SLO_AUTH_PROVIDERS } from '@shell/store/auth';
-
-// Action Engine Imports
-import { useActionEngine } from '@shell/composables/useActionEngine';
-import { useSpeechRecognition } from '@shell/composables/useSpeechRecognition';
-import { useAI } from '@shell/composables/useAI';
-import { availableActions } from '@shell/models/action-definitions';
+import ActionEngineInput from './ActionEngineInput.vue';
 
 export default defineComponent({
 
@@ -55,6 +50,7 @@ export default defineComponent({
     RcDropdownItem,
     RcDropdownSeparator,
     RcDropdownTrigger,
+    ActionEngineInput
   },
 
   props: {
@@ -62,21 +58,6 @@ export default defineComponent({
       type:    Boolean,
       default: false
     }
-  },
-
-  // This is a temporary setup for the hackweek to instantiate composables in an Options API component.
-  // A full refactor would be needed for a production feature.
-  created() {
-    this.actionEngine = useActionEngine();
-    this.speechRecognition = useSpeechRecognition();
-    this.ai = useAI();
-
-    watch(this.speechRecognition.transcript, (newTranscript) => {
-      if (newTranscript) {
-        this.commandText = newTranscript;
-        this.handleCommandSubmit(); // Automatically submit when speech recognition completes
-      }
-    });
   },
 
   fetch() {
@@ -102,8 +83,6 @@ export default defineComponent({
       extensionHeaderActions:  getApplicableExtensionEnhancements(this, ExtensionPoint.ACTION, ActionLocation.HEADER, this.$route),
       extensionActionsEnabled: {},
       ctx:                     this,
-      showActionInput:         false,
-      commandText:             '',
     };
   },
 
@@ -123,17 +102,6 @@ export default defineComponent({
       'showTopLevelMenu',
       'showWorkspaceSwitcher'
     ]),
-
-    // Action Engine Computed Properties
-    isListening() {
-      return this.speechRecognition?.isListening.value;
-    },
-    isSpeechSupported() {
-      return this.speechRecognition?.isSupported;
-    },
-    isAiLoading() {
-      return this.ai?.isLoading.value;
-    },
 
     sloAuthProviderEnabled() {
       const publicAuthProviders = this.$store.getters['rancher/all']('authProvider');
@@ -310,35 +278,6 @@ export default defineComponent({
   },
 
   methods: {
-    // --- Action Engine Methods ---
-    async handleCommandSubmit() {
-      console.log('Submitting command:', this.commandText);
-      if (this.commandText) {
-        const intent = await this.ai.getIntentFromAI(this.commandText, availableActions);
-
-        if (intent) {
-          this.actionEngine.executeIntent(intent);
-          this.showActionInput = false;
-          this.commandText = '';
-        }
-      }
-    },
-
-    handleMicClick() {
-      if (this.isListening) {
-        this.speechRecognition.stopListening();
-      } else {
-        this.commandText = ''; // Clear text on new recording
-        this.speechRecognition.startListening();
-      }
-    },
-
-    handleEsc() {
-      this.showActionInput = false;
-      this.speechRecognition.stopListening();
-    },
-
-    // --- Existing Methods ---
     showSloModal() {
       this.$store.dispatch('management/promptModal', {
         component:      'SloDialog',
@@ -747,44 +686,7 @@ export default defineComponent({
       <div class="center-self">
         <header-page-action-menu v-if="showPageActions" />
         <NotificationCenter />
-
-        <!-- Action Engine Input -->
-        <div class="action-input-container">
-          <button
-            v-if="!showActionInput"
-            v-clean-tooltip="t('actionEngine.tooltip')"
-            type="button"
-            class="btn header-btn role-tertiary"
-            @click="showActionInput = true"
-          >
-            <i class="icon icon-star-open icon-lg" />
-          </button>
-          <div
-            v-else
-            class="action-input-box"
-          >
-            <input
-              v-model="commandText"
-              v-focus
-              type="text"
-              :placeholder="isListening ? t('actionEngine.listening') : t('actionEngine.placeholder')"
-              class="action-input"
-              @keydown.enter.prevent="handleCommandSubmit"
-              @keydown.esc.prevent="handleEsc"
-            >
-            <i
-              v-if="isAiLoading"
-              class="icon icon-spinner icon-spin action-input-icon"
-            />
-            <i
-              v-else
-              class="icon icon-monitoring action-input-icon"
-              :class="{'icon-active': isListening}"
-              @click="handleMicClick"
-            />
-          </div>
-        </div>
-
+        <ActionEngineInput />
         <rc-dropdown
           v-if="showUserMenu"
           :aria-label="t('nav.userMenu.label')"
@@ -1149,52 +1051,6 @@ export default defineComponent({
         gap: 1rem;
         align-items: center;
         padding-right: 1rem;
-
-        .action-input-container {
-          position: relative;
-          min-width: 40px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .action-input-box {
-          position: relative;
-          display: flex;
-          align-items: center;
-        }
-
-        .action-input {
-          background-color: var(--header-btn-bg);
-          color: var(--header-btn-text);
-          border: 1px solid var(--header-border);
-          border-radius: var(--border-radius);
-          height: 32px;
-          width: 250px;
-          padding: 5px 30px 5px 10px;
-
-          &:focus {
-            background-color: var(--input-bg);
-            color: var(--input-text);
-          }
-        }
-
-        .action-input-icon {
-          position: absolute;
-          right: 10px;
-          top: 50%;
-          transform: translateY(-50%);
-          cursor: pointer;
-          color: var(--header-btn-text);
-
-          &.icon-active {
-            color: var(--primary);
-          }
-
-          &:hover {
-            color: var(--link-hover);
-          }
-        }
       }
     }
   }

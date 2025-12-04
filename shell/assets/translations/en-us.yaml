@@ -163,6 +163,11 @@ generic:
   internalIps: Internal IPs
   opensInNewTab: Opens in a new tab
 
+actionEngine:
+  placeholder: Type to Rancher Commander...
+  tooltip: Rancher Commander
+  listening: Listening...
+
 tabs:
   addItem: Add a new tab item
   removeItem: Remove selected tab item
