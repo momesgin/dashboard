@@ -1,5 +1,6 @@
-<script>
-import { defineComponent, watch } from 'vue';
+<script lang="ts">
+import { defineComponent, ref, watch, computed } from 'vue';
+import { useStore } from 'vuex';
 import { useClickOutside } from '@shell/composables/useClickOutside';
 import { useActionEngine } from '@shell/composables/useActionEngine';
 import { useSpeechRecognition } from '@shell/composables/useSpeechRecognition';
@@ -9,84 +10,95 @@ import { availableActions } from '@shell/models/action-definitions';
 export default defineComponent({
   name: 'ActionEngineInput',
 
-  data() {
-    return {
-      showActionInput: false,
-      commandText:     '',
-    };
-  },
+  setup() {
+    const store = useStore();
 
-  created() {
-    this.actionEngine = useActionEngine();
-    this.speechRecognition = useSpeechRecognition();
-    this.ai = useAI();
+    const showActionInput = ref(false);
+    const commandText = ref('');
+    const actionInputBox = ref(null);
 
-    watch(this.speechRecognition.transcript, (newTranscript) => {
+    const actionEngine = useActionEngine();
+    const speechRecognition = useSpeechRecognition();
+    const ai = useAI();
+
+    const theme = computed(() => store.getters['prefs/theme']);
+    const isDarkMode = computed(() => theme.value === 'dark');
+    const isListening = computed(() => speechRecognition.isListening.value);
+    const isAiLoading = computed(() => ai.isLoading.value);
+
+    watch(speechRecognition.transcript, (newTranscript) => {
       if (newTranscript) {
-        this.commandText = newTranscript;
-        this.handleCommandSubmit();
+        commandText.value = newTranscript;
+        handleCommandSubmit();
       }
     });
-  },
 
-  computed: {
-    isListening() {
-      return this.speechRecognition?.isListening.value;
-    },
-    isAiLoading() {
-      return this.ai?.isLoading.value;
-    },
-  },
+    const handleEsc = () => {
+      showActionInput.value = false;
+    };
 
-  watch: {
-    showActionInput(isOpen) {
+    const handleGlobalEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleEsc();
+      }
+    };
+
+    watch(showActionInput, (isOpen) => {
       if (isOpen) {
-        this.$nextTick(() => {
-          if (this.$refs.actionInputBox) {
-            useClickOutside(this.$refs.actionInputBox, () => {
-              this.showActionInput = false;
-            });
-          }
-        });
-        window.addEventListener('keydown', this.handleGlobalEsc);
+        window.addEventListener('keydown', handleGlobalEsc);
       } else {
-        window.removeEventListener('keydown', this.handleGlobalEsc);
-        if (this.isListening) {
-          this.speechRecognition.stopListening();
+        window.removeEventListener('keydown', handleGlobalEsc);
+        if (isListening.value) {
+          speechRecognition.stopListening();
+        }
+      }
+    });
+
+    useClickOutside(actionInputBox, () => {
+      if (showActionInput.value) {
+        showActionInput.value = false;
+      }
+    });
+
+    async function handleCommandSubmit() {
+      if (commandText.value) {
+        const intent = await ai.getIntentFromAI(commandText.value, availableActions);
+
+        if (intent) {
+          actionEngine.executeIntent(intent);
+          showActionInput.value = false;
+          commandText.value = '';
         }
       }
     }
-  },
 
-  methods: {
-    handleGlobalEsc(event) {
-      if (event.key === 'Escape') {
-        this.handleEsc();
-      }
-    },
-    async handleCommandSubmit() {
-      if (this.commandText) {
-        const intent = await this.ai.getIntentFromAI(this.commandText, availableActions);
-
-        if (intent) {
-          this.actionEngine.executeIntent(intent);
-          this.showActionInput = false;
-          this.commandText = '';
-        }
-      }
-    },
-    handleMicClick() {
-      if (this.isListening) {
-        this.speechRecognition.stopListening();
+    function handleMicClick() {
+      if (isListening.value) {
+        speechRecognition.stopListening();
       } else {
-        this.commandText = '';
-        this.speechRecognition.startListening();
+        commandText.value = '';
+        speechRecognition.startListening();
       }
-    },
-    handleEsc() {
-      this.showActionInput = false;
-    },
-  }
+    }
+
+    const openActionInput = () => {
+      showActionInput.value = true;
+    };
+
+    return {
+      showActionInput,
+      commandText,
+      actionInputBox,
+      isDarkMode,
+      isListening,
+      isAiLoading,
+      handleCommandSubmit,
+      handleMicClick,
+      handleEsc,
+      openActionInput,
+      t: store.getters['i18n/t'],
+    };
+  },
 });
 </script>
 
@@ -97,7 +109,7 @@ export default defineComponent({
       v-clean-tooltip="t('actionEngine.tooltip')"
       type="button"
       class="btn header-btn role-tertiary"
-      @click="showActionInput = true"
+      @click="openActionInput"
     >
       <i class="icon icon-star-open icon-lg" />
     </button>
@@ -122,7 +134,10 @@ export default defineComponent({
         v-else
         :src="require('@shell/assets/images/microphone.png')"
         class="action-input-icon"
-        :class="{'listening-active': isListening}"
+        :class="{
+          'listening-active': isListening,
+          'dark-mode': isDarkMode && !isListening
+        }"
         alt="Microphone"
         @click="handleMicClick"
       >
@@ -168,6 +183,17 @@ export default defineComponent({
   cursor: pointer;
   width: 20px;
   height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  &.icon-spin {
+    animation: action-icon-spin 1s infinite linear;
+  }
+
+  &.dark-mode {
+    filter: invert(1);
+  }
 
   &.listening-active {
     filter: brightness(0) saturate(100%) invert(60%) sepia(89%) saturate(1200%) hue-rotate(359deg) brightness(101%) contrast(104%);
@@ -175,6 +201,15 @@ export default defineComponent({
 
   &:hover {
     filter: brightness(0) saturate(100%) invert(48%) sepia(13%) saturate(3207%) hue-rotate(130deg) brightness(95%) contrast(80%);
+  }
+}
+
+@keyframes action-icon-spin {
+  from {
+    transform: translateY(-50%) rotate(0deg);
+  }
+  to {
+    transform: translateY(-50%) rotate(360deg);
   }
 }
 </style>
