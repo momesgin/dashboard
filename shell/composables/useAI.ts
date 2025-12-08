@@ -5,7 +5,18 @@ import { ActionDefinition, ActionIntent } from '../models/action-engine';
 const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // In a real app, this would be handled on a backend server.
-const API_KEY = process.env.HACKWEEK_GEMINI_API_KEY;
+const API_KEY = process.env.VUE_APP_GEMINI_API_KEY || 'AIzaSyBas6_u_cdWP9AJcgVqowTY-HyriWR4Y6I';
+
+/**
+ * Generates the simplified "handbook" prompt for the AI.
+ * This prompt now relies on the AI's ability to understand function descriptions directly.
+ */
+function getHandbookPrompt(): string {
+  return `
+    You are a helpful assistant integrated into the Rancher UI. Your primary task is to translate a user's natural language command into a structured JSON function call based on the available tools.
+    Always prioritize using the provided tools.
+  `;
+}
 
 /**
  * A composable to interact with the Google Gemini AI.
@@ -53,7 +64,7 @@ export function useAI() {
    */
   const getIntentFromAI = async(userQuery: string, availableActions: ActionDefinition[]): Promise<ActionIntent | null> => {
     if (!API_KEY) {
-      error.value = 'HACKWEEK_GEMINI_API_KEY environment variable not set. Please create a .env file in the project root.';
+      error.value = 'VUE_APP_GEMINI_API_KEY environment variable not set. Please create a .env file in the project root.';
       console.error(error.value);
 
       return null;
@@ -64,9 +75,10 @@ export function useAI() {
 
     try {
       const geminiTools = convertToGeminiTools(availableActions);
+      const handbook = getHandbookPrompt();
 
       const requestBody = {
-        contents: [{ parts: [{ text: userQuery }] }],
+        contents: [{ parts: [{ text: `${ handbook }\n\nUser Command: "${ userQuery }"` }] }],
         tools:    geminiTools,
       };
 
@@ -86,7 +98,7 @@ export function useAI() {
       const functionCall = data.candidates?.[0]?.content?.parts?.[0]?.functionCall;
 
       if (!functionCall) {
-        error.value = 'The AI did not return a valid action for that command.';
+        error.value = data.candidates?.[0]?.content?.parts?.[0]?.text || 'The AI did not return a valid action for that command.';
         console.warn(error.value);
 
         return null;

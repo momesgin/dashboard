@@ -42,20 +42,35 @@ interface BaseActionIntent {
 }
 
 /**
- * INTENT: Navigate to a page in the Rancher UI.
+ * INTENT: Navigate to a resource page within a specific cluster.
  */
-export interface NavigateIntent extends BaseActionIntent {
-  name: 'navigate';
+export interface NavigateToClusterResourceIntent extends BaseActionIntent {
+  name: 'navigateToClusterResource';
   arguments: {
     clusterId: string;
-    // The name of the product area, e.g., 'explorer', 'apps'
     product: string;
-    // The type of resource to navigate to, e.g., 'pod', 'deployment'
     resource?: string;
-    // Optional params for resource-specific pages
     namespace?: string;
-    id?: string; // The specific resource ID
+    id?: string;
   };
+}
+
+/**
+ * INTENT: Navigate to a global, top-level page.
+ */
+export interface NavigateToRootPageIntent extends BaseActionIntent {
+  name: 'navigateToRootPage';
+  arguments: {
+    pageName: 'home' | 'prefs' | 'account' | 'support' | 'about';
+  };
+}
+
+/**
+ * INTENT: Navigate to the main Cluster Management page.
+ */
+export interface NavigateToClusterManagementIntent extends BaseActionIntent {
+  name: 'navigateToClusterManagement';
+  arguments: {};
 }
 
 /**
@@ -65,11 +80,11 @@ export interface CreateRke2ClusterIntent extends BaseActionIntent {
   name: 'createRke2Cluster';
   arguments: {
     clusterName: string;
-    kubernetesVersion: string; // e.g., 'v1.28.4+rke2r1'
-    nodeProvider: 'aws' | 'azure' | 'digitalocean'; // Example providers
-    region?: string; // e.g., 'us-west-2' for AWS
+    kubernetesVersion: string;
+    nodeProvider: 'aws' | 'azure' | 'digitalocean';
+    region?: string;
     nodeCount?: number;
-    nodeInstanceType?: string; // e.g., 't3.medium' for AWS
+    nodeInstanceType?: string;
   };
 }
 
@@ -77,11 +92,11 @@ export interface CreateRke2ClusterIntent extends BaseActionIntent {
 
 /**
  * A discriminated union of all possible action intents.
- * The Action Engine will receive an object of this type. TypeScript will
- * automatically infer the correct `arguments` shape based on the `name`.
  */
 export type ActionIntent =
-  | NavigateIntent
+  | NavigateToClusterResourceIntent
+  | NavigateToRootPageIntent
+  | NavigateToClusterManagementIntent
   | CreateRke2ClusterIntent;
 
 // ===================================================================================
