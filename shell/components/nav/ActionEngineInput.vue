@@ -197,6 +197,10 @@ export default defineComponent({
 
   &.listening-active {
     filter: brightness(0) saturate(100%) invert(60%) sepia(89%) saturate(1200%) hue-rotate(359deg) brightness(101%) contrast(104%);
+
+    &:hover {
+      filter: brightness(0) saturate(100%) invert(60%) sepia(89%) saturate(1200%) hue-rotate(359deg) brightness(101%) contrast(104%);
+    }
   }
 
   &:hover {
