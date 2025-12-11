@@ -1,20 +1,30 @@
 import { ref } from 'vue';
 import { ActionDefinition, ActionIntent } from '../models/action-engine';
+import { navigationMap } from '@shell/models/navigation-map';
 
 // The Gemini API URL for the gemini-2.5-flash model
 const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // In a real app, this would be handled on a backend server.
-const API_KEY = process.env.VUE_APP_GEMINI_API_KEY || 'AIzaSyBas6_u_cdWP9AJcgVqowTY-HyriWR4Y6I';
+const API_KEY = process.env.VUE_APP_GEMINI_API_KEY;
 
 /**
- * Generates the simplified "handbook" prompt for the AI.
- * This prompt now relies on the AI's ability to understand function descriptions directly.
+ * Generates the detailed "handbook" prompt for the AI, including the navigation map.
  */
 function getHandbookPrompt(): string {
+  const mapAsText = navigationMap.map((target) => {
+    return `- id: "${ target.id }", name: "${ target.name }", description: "${ target.description }", keywords: [${ target.keywords.join(', ') }]`;
+  }).join('\n');
+
   return `
-    You are a helpful assistant integrated into the Rancher UI. Your primary task is to translate a user's natural language command into a structured JSON function call based on the available tools.
-    Always prioritize using the provided tools.
+    You are a helpful assistant integrated into the Rancher UI. Your primary task is to translate a user's natural language command into a structured JSON function call to navigate the UI.
+
+    You must use the "navigateTo" function. To do this, you need to find the best matching page from the list below and use its "id" for the "targetId" parameter.
+
+    If the user mentions a specific cluster, pass its name in the "clusterId" parameter. If they mention a namespace, pass it in the "namespace" parameter.
+
+    Here is the list of all available navigation targets:
+    ${ mapAsText }
   `;
 }
 

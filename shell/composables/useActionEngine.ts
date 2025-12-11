@@ -2,13 +2,15 @@ import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import {
   ActionIntent,
-  NavigateToClusterResourceIntent,
-  NavigateToRootPageIntent,
-  CreateRke2ClusterIntent,
-  NavigateToClusterManagementIntent
+  NavigateToIntent,
+  NavigationTarget,
+  NavigationTargetAction,
+  NavigationTargetClusterScope,
+  NavigationTargetPage,
+  NavigationTargetResource,
 } from '../models/action-engine';
-import { CAPI, MANAGEMENT } from '@shell/config/types';
-import { NAME as MANAGER } from '@shell/config/product/manager';
+import { navigationMap } from '@shell/models/navigation-map';
+import { MANAGEMENT } from '@shell/config/types';
 
 export function useActionEngine() {
   const router = useRouter();
@@ -16,17 +18,8 @@ export function useActionEngine() {
 
   const executeIntent = async(intent: ActionIntent) => {
     switch (intent.name) {
-    case 'navigateToClusterResource':
-      await handleNavigateToClusterResourceIntent(intent);
-      break;
-    case 'navigateToRootPage':
-      handleNavigateToRootPageIntent(intent);
-      break;
-    case 'navigateToClusterManagement':
-      await handleNavigateToClusterManagementIntent();
-      break;
-    case 'createRke2Cluster':
-      handleCreateRke2ClusterIntent(intent);
+    case 'navigateTo':
+      await handleNavigateToIntent(intent);
       break;
     default:
       console.warn(`ActionEngine: Unknown intent name: ${ (intent as any).name }`);
@@ -34,107 +27,114 @@ export function useActionEngine() {
     }
   };
 
-  const handleNavigateToClusterResourceIntent = async(intent: NavigateToClusterResourceIntent) => {
+  const handleNavigateToIntent = async(intent: NavigateToIntent) => {
     const {
-      clusterId: clusterName, product, resource, id, namespace
+      targetId, clusterId: clusterName, id, namespace
     } = intent.arguments;
 
-    let targetClusterId;
+    const target: NavigationTarget | undefined = navigationMap.find((t) => t.id === targetId);
 
-    if (clusterName?.toLowerCase() === 'local') {
-      targetClusterId = 'local';
-    } else if (clusterName) {
-      await store.dispatch('management/findAll', { type: MANAGEMENT.CLUSTER });
-      const allClusters = store.getters['management/all'](MANAGEMENT.CLUSTER);
-      const targetCluster = allClusters.find((c: any) => c.name === clusterName || c.spec.displayName === clusterName);
-
-      targetClusterId = targetCluster?.id;
-    }
-
-    if (!targetClusterId) {
-      console.error(`ActionEngine: Cluster with name "${ clusterName }" not found.`);
+    if (!target) {
+      console.error(`ActionEngine: Navigation target with id "${ targetId }" not found.`);
 
       return;
     }
 
-    // If we have an ID, we're navigating to a detail page.
-    if (id && resource) {
+    let targetClusterId;
+
+    if (target.scope === NavigationTargetClusterScope.Cluster) {
+      if (clusterName?.toLowerCase() === 'local') {
+        targetClusterId = 'local';
+      } else if (clusterName) {
+        await store.dispatch('management/findAll', { type: MANAGEMENT.CLUSTER });
+        const allClusters = store.getters['management/all'](MANAGEMENT.CLUSTER);
+        const targetCluster = allClusters.find((c: any) => c.name === clusterName || c.spec.displayName === clusterName);
+
+        targetClusterId = targetCluster?.id;
+      }
+
+      if (!targetClusterId) {
+        console.error(`ActionEngine: Cluster with name "${ clusterName }" not found.`);
+
+        return;
+      }
+    }
+
+    if (id && (target as NavigationTargetResource).resource) {
       try {
         const resourceObj = await store.dispatch('cluster/find', {
-          type: resource,
+          type: (target as NavigationTargetResource).resource,
           id:   `${ namespace }/${ id }`
         });
 
         if (resourceObj?.goToDetail) {
-          console.log(`ActionEngine: Navigating to detail page for ${ resource } ${ id }`);
+          console.log(`ActionEngine: Navigating to detail page for ${ (target as NavigationTargetResource).resource } ${ id }`);
           resourceObj.goToDetail();
         } else {
           console.error(`ActionEngine: Resource object for ${ id } found, but it has no goToDetail method.`);
         }
       } catch (e) {
-        console.error(`ActionEngine: Could not find resource ${ resource } with id ${ id } to navigate to.`, e);
+        console.error(`ActionEngine: Could not find resource ${ (target as NavigationTargetResource).resource } with id ${ id } to navigate to.`, e);
       }
 
       return;
     }
 
-    // Otherwise, we're navigating to a list page.
-    if (resource) {
-      // We can get the list view by creating a "dummy" resource of the target type
-      // and getting its listLocation.
-      const dummyResource = await store.dispatch('cluster/create', { type: resource });
+    if (target.action === NavigationTargetAction.Resource) {
+      const resourceTarget = target as NavigationTargetResource;
+      const dummyResource = await store.dispatch('cluster/create', { type: resourceTarget.resource });
       const location = dummyResource.listLocation;
 
-      location.params.cluster = targetClusterId;
-      location.params.product = product;
+      if (target.scope === NavigationTargetClusterScope.Cluster) {
+        location.params.cluster = targetClusterId;
+      } else {
+        location.params.cluster = '_';
+      }
+
+      if (resourceTarget.product) {
+        location.params.product = resourceTarget.product;
+      }
 
       console.log('ActionEngine: Navigating to resource list page:', location);
       router.push(location);
-    }
-  };
+    } else if (target.action === NavigationTargetAction.Page) {
+      const pageTarget = target as NavigationTargetPage;
+      const route: any = {};
 
-  const handleNavigateToRootPageIntent = (intent: NavigateToRootPageIntent) => {
-    const { pageName } = intent.arguments;
-    const route = { name: pageName };
-
-    console.log('ActionEngine: Navigating to root page route:', route);
-    router.push(route);
-  };
-
-  const handleNavigateToClusterManagementIntent = async() => {
-    // This is a special case that navigates to a specific resource list.
-    // We can reuse the main handler for this.
-    const intent: NavigateToClusterResourceIntent = {
-      name:      'navigateToClusterResource',
-      arguments: {
-        clusterId: store.getters['currentCluster']?.id || 'local',
-        product:   MANAGER,
-        resource:  CAPI.RANCHER_CLUSTER
+      if (pageTarget.scope === NavigationTargetClusterScope.Global) {
+        if (pageTarget.product) {
+          route.name = 'c-cluster-product-resource';
+          route.params = {
+            cluster:  '_',
+            product:  pageTarget.product,
+            resource: pageTarget.path
+          };
+        } else {
+          route.name = pageTarget.path;
+        }
+      } else if (pageTarget.scope === NavigationTargetClusterScope.Cluster) {
+        route.name = 'c-cluster-product-resource';
+        route.params = {
+          cluster:  targetClusterId,
+          product:  pageTarget.product,
+          resource: pageTarget.path
+        };
       }
-    };
 
-    await handleNavigateToClusterResourceIntent(intent);
-  };
-
-  const handleCreateRke2ClusterIntent = (intent: CreateRke2ClusterIntent) => {
-    const {
-      clusterName, kubernetesVersion, nodeProvider, region, nodeCount, nodeInstanceType
-    } = intent.arguments;
-
-    console.log(`ActionEngine: Attempting to create RKE2 cluster '${ clusterName }' with K8s version '${ kubernetesVersion }' on '${ nodeProvider }'.`);
-    console.log(`  Details: Region=${ region }, Nodes=${ nodeCount }, InstanceType=${ nodeInstanceType }`);
+      console.log('ActionEngine: Navigating to root page route:', route);
+      router.push(route);
+    }
   };
 
   return { executeIntent };
 }
 
-export function mockAIResponse(): NavigateToClusterResourceIntent {
+export function mockAIResponse(): NavigateToIntent {
   return {
-    name:      'navigateToClusterResource',
+    name:      'navigateTo',
     arguments: {
+      targetId:  'pods',
       clusterId: 'local',
-      product:   'explorer',
-      resource:  'pod',
     },
   };
 }

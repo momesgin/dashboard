@@ -42,49 +42,15 @@ interface BaseActionIntent {
 }
 
 /**
- * INTENT: Navigate to a resource page within a specific cluster.
+ * INTENT: Navigate to a page or resource.
  */
-export interface NavigateToClusterResourceIntent extends BaseActionIntent {
-  name: 'navigateToClusterResource';
+export interface NavigateToIntent extends BaseActionIntent {
+  name: 'navigateTo';
   arguments: {
-    clusterId: string;
-    product: string;
-    resource?: string;
+    targetId: string;
+    clusterId?: string;
     namespace?: string;
     id?: string;
-  };
-}
-
-/**
- * INTENT: Navigate to a global, top-level page.
- */
-export interface NavigateToRootPageIntent extends BaseActionIntent {
-  name: 'navigateToRootPage';
-  arguments: {
-    pageName: 'home' | 'prefs' | 'account' | 'support' | 'about';
-  };
-}
-
-/**
- * INTENT: Navigate to the main Cluster Management page.
- */
-export interface NavigateToClusterManagementIntent extends BaseActionIntent {
-  name: 'navigateToClusterManagement';
-  arguments: {};
-}
-
-/**
- * INTENT: Create a new cluster (simplified example for an RKE2/K3s cluster).
- */
-export interface CreateRke2ClusterIntent extends BaseActionIntent {
-  name: 'createRke2Cluster';
-  arguments: {
-    clusterName: string;
-    kubernetesVersion: string;
-    nodeProvider: 'aws' | 'azure' | 'digitalocean';
-    region?: string;
-    nodeCount?: number;
-    nodeInstanceType?: string;
   };
 }
 
@@ -94,10 +60,7 @@ export interface CreateRke2ClusterIntent extends BaseActionIntent {
  * A discriminated union of all possible action intents.
  */
 export type ActionIntent =
-  | NavigateToClusterResourceIntent
-  | NavigateToRootPageIntent
-  | NavigateToClusterManagementIntent
-  | CreateRke2ClusterIntent;
+  | NavigateToIntent;
 
 // ===================================================================================
 // 3. AI PAYLOADS
@@ -116,3 +79,40 @@ export interface AIPayload {
  * The expected response from the AI service.
  */
 export type AIResponse = ActionIntent;
+
+// ===================================================================================
+// 4. NAVIGATION MAP
+// These types define the structure of the navigation map, which is used to
+// provide the AI with a list of possible navigation targets.
+// ===================================================================================
+
+export enum NavigationTargetClusterScope {
+  Global = 'global',
+  Cluster = 'cluster',
+}
+
+export enum NavigationTargetAction {
+  Page = 'page',
+  Resource = 'resource',
+}
+
+interface NavigationTargetBase {
+  id: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  scope: NavigationTargetClusterScope;
+  product?: string;
+}
+
+export interface NavigationTargetPage extends NavigationTargetBase {
+  action: NavigationTargetAction.Page;
+  path: string;
+}
+
+export interface NavigationTargetResource extends NavigationTargetBase {
+  action: NavigationTargetAction.Resource;
+  resource: string;
+}
+
+export type NavigationTarget = NavigationTargetPage | NavigationTargetResource;
