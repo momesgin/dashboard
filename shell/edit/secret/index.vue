@@ -55,7 +55,9 @@ export default {
     }
 
     const projectScopedLabel = this.value.metadata?.labels?.[UI_PROJECT_SECRET];
-    const isProjectScoped = !!projectScopedLabel || (this.isCreate && this.$route.query[SECRET_SCOPE] === SECRET_QUERY_PARAMS.PROJECT_SCOPED);
+    const isProjectScoped = !!projectScopedLabel ||
+      (this.isCreate && this.$route.query[SECRET_SCOPE] === SECRET_QUERY_PARAMS.PROJECT_SCOPED) ||
+      (this.isCreate && this.$route.params.resource === VIRTUAL_TYPES.PROJECT_SECRETS);
 
     this.isProjectScoped = isProjectScoped;
 
