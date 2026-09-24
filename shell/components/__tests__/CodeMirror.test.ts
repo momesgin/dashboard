@@ -367,7 +367,7 @@ describe('component: CodeMirror.vue', () => {
 
       wrapper.vm.setSearchHighlight('bar');
 
-      expect(view.contentDOM.querySelectorAll('.yaml-search-value')).toHaveLength(2);
+      expect(view.contentDOM.querySelectorAll('.cm-searchMatch')).toHaveLength(2);
       expect(wrapper.vm.searchHighlightQuery).toStrictEqual('bar');
     });
 

@@ -348,9 +348,9 @@ export default defineComponent({
     },
 
     /**
-     * Highlight the lines that contain `query` (case-insensitive): their key and
-     * value are styled and every other line is dimmed. Pass an empty query to
-     * clear it. The editor stays editable, and edited lines are re-highlighted.
+     * Highlight the matches of `query` (case-insensitive), with the colours of
+     * CodeMirror's own search. Pass an empty query to clear it. The editor stays
+     * editable.
      */
     setSearchHighlight(query = '') {
       const view = this.editorView();
@@ -441,8 +441,6 @@ export default defineComponent({
 
 <style lang="scss">
   $code-mirror-animation-time: 0.1s;
-  // Opacity of the text and the tint of lines without a search match.
-  $search-dim-opacity: 0.4;
 
   .code-mirror {
     position: relative;
@@ -541,32 +539,6 @@ export default defineComponent({
     // Search results, set via `setSearchHighlight`
     &.search-highlighted .codemirror-container .rc-code-mirror {
       --rc-cm-bg: var(--body-bg);
-    }
-
-    // Also color the syntax highlight spans inside the marks
-    .yaml-search-key, .yaml-search-key * {
-      color: var(--success);
-      font-weight: bold;
-    }
-
-    .yaml-search-value, .yaml-search-value * {
-      color: var(--error-hover-bg);
-      font-weight: bold;
-    }
-
-    .yaml-search-current {
-      background-color: var(--warning-banner-bg);
-      outline: 1px solid var(--warning);
-    }
-
-    // Dims the text and the tint of a line without a match. Only the tint is dimmed
-    // in the gutters, so the line numbers stay readable.
-    .cm-line.yaml-search-dim-line {
-      opacity: $search-dim-opacity;
-    }
-
-    .cm-gutterElement.line-override-highlight.yaml-search-dim-line {
-      background-color: color-mix(in srgb, var(--info-banner-bg) #{$search-dim-opacity * 100%}, transparent);
     }
   }
 </style>
