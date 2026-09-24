@@ -196,6 +196,14 @@ export default {
 
     setSearchHighlight(query) {
       this.$refs.cm?.setSearchHighlight(query);
+    },
+
+    findSearchMatch(direction) {
+      return this.$refs.cm?.findSearchMatch(direction) || 0;
+    },
+
+    searchMatchIndex() {
+      return this.$refs.cm?.searchMatchIndex() || 0;
     }
   }
 };

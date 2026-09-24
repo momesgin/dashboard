@@ -3029,6 +3029,9 @@ yamlOverridesEditor:
         =1 {1 match}
         other {{count, number} matches}
       }
+    position: '{current, number} of {total, number}'
+    next: Next match
+    previous: Previous match
     clear: Clear search
 
 cruResource:

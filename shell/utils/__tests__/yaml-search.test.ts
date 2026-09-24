@@ -1,5 +1,8 @@
+import { EditorSelection } from '@codemirror/state';
 import { EditorView, lineNumbers } from '@codemirror/view';
-import { countMatches, yamlSearchSegments, setYamlSearch, SEARCH_STYLE } from '@shell/utils/yaml-search';
+import {
+  countMatches, yamlSearchSegments, setYamlSearch, findYamlSearchMatch, yamlSearchMatchIndex, SEARCH_STYLE, SEARCH_CURRENT_CLASS
+} from '@shell/utils/yaml-search';
 
 const { KEY, VALUE, DIM } = SEARCH_STYLE;
 
@@ -197,6 +200,106 @@ describe('fx: yaml-search', () => {
         view.dispatch({ changes: { from: 0, insert: 'x' } });
 
         expect(lineClasses(view)).toStrictEqual(['cm-line', `cm-line ${ DIM }`, `cm-line ${ DIM }`, 'cm-line', 'cm-line']);
+      });
+    });
+
+    describe('findYamlSearchMatch', () => {
+      it.each([
+        ['first', [], 1],
+        ['next', [], 1],
+        ['next', ['next'], 2],
+        ['previous', [], 3],
+        ['previous', ['previous'], 2],
+      ])('selects match for %p after %p and returns its position %p', (direction, before, expected) => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        (before as ('next' | 'previous')[]).forEach((d) => findYamlSearchMatch(view, d));
+
+        expect(findYamlSearchMatch(view, direction as 'first' | 'next' | 'previous')).toStrictEqual(expected);
+      });
+
+      it('selects the text of the match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        findYamlSearchMatch(view, 'next');
+        findYamlSearchMatch(view, 'next');
+
+        const { from, to } = view.state.selection.main;
+
+        expect(view.state.sliceDoc(from, to)).toStrictEqual('Bar');
+      });
+
+      it('wraps around after the last match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        ['next', 'next', 'next'].forEach((d) => findYamlSearchMatch(view, d as 'next'));
+
+        expect(findYamlSearchMatch(view, 'next')).toStrictEqual(1);
+      });
+
+      it('marks the selected match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        findYamlSearchMatch(view, 'previous');
+
+        expect(marked(view, SEARCH_CURRENT_CLASS)).toStrictEqual(['bar']);
+      });
+
+      it('treats the query as plain text', () => {
+        const view = createView('a: x\\ny\nb: x\\ny');
+
+        setYamlSearch(view, 'x\\n');
+
+        expect(findYamlSearchMatch(view, 'first')).toStrictEqual(1);
+      });
+
+      it.each(['first', 'next', 'previous'])('returns 0 for %p without a query', (direction) => {
+        const view = createView();
+
+        setYamlSearch(view, '');
+
+        expect(findYamlSearchMatch(view, direction as 'first' | 'next' | 'previous')).toStrictEqual(0);
+      });
+
+      it('returns 0 when there is no match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'nothing');
+
+        expect(findYamlSearchMatch(view, 'first')).toStrictEqual(0);
+      });
+    });
+
+    describe('yamlSearchMatchIndex', () => {
+      it('is 0 when the selection is not on a match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        view.dispatch({ selection: EditorSelection.single(0, 3) });
+
+        expect(yamlSearchMatchIndex(view.state)).toStrictEqual(0);
+      });
+
+      it('is 0 for an empty selection', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+
+        expect(yamlSearchMatchIndex(view.state)).toStrictEqual(0);
+      });
+
+      it('follows the selected match while the document is edited', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        findYamlSearchMatch(view, 'next');
+        view.dispatch({ changes: { from: 0, insert: 'bar: 1\n' } });
+
+        expect(yamlSearchMatchIndex(view.state)).toStrictEqual(2);
       });
     });
   });

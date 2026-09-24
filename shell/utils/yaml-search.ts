@@ -3,10 +3,15 @@
  * YamlOverridesEditor.vue). Matching works like a browser's find in page: a plain,
  * case-insensitive substring match, so "bar" also matches "fooBar".
  */
-import { RangeSet, StateEffect, StateField } from '@codemirror/state';
-import type { Range, Text } from '@codemirror/state';
-import { Decoration, EditorView, GutterMarker, gutterLineClass } from '@codemirror/view';
-import type { DecorationSet } from '@codemirror/view';
+import { EditorSelection, RangeSet, StateEffect, StateField } from '@codemirror/state';
+import type { EditorState, Extension, Range, Text } from '@codemirror/state';
+import {
+  Decoration, EditorView, GutterMarker, ViewPlugin, gutterLineClass
+} from '@codemirror/view';
+import type { DecorationSet, ViewUpdate } from '@codemirror/view';
+import {
+  SearchQuery, findNext, findPrevious, getSearchQuery, search, setSearchQuery
+} from '@codemirror/search';
 import { LineClassMarker } from '@shell/utils/code-mirror-line-classes';
 
 /** The search only runs once the query has at least this many characters. */
@@ -22,6 +27,9 @@ export const SEARCH_STYLE = {
   VALUE: 'yaml-search-value',
   DIM:   'yaml-search-dim-line',
 };
+
+/** Class of the match that is currently selected. */
+export const SEARCH_CURRENT_CLASS = 'yaml-search-current';
 
 /** A styled range of a line, from the end of the previous segment up to `end`. */
 export interface SearchSegment {
@@ -116,6 +124,7 @@ const keyMark = Decoration.mark({ class: SEARCH_STYLE.KEY });
 const valueMark = Decoration.mark({ class: SEARCH_STYLE.VALUE });
 const dimLine = Decoration.line({ class: SEARCH_STYLE.DIM });
 const dimGutter = new LineClassMarker(SEARCH_STYLE.DIM);
+const currentMark = Decoration.mark({ class: SEARCH_CURRENT_CLASS });
 
 /** The search highlight of the lines `fromLine` to `toLine` (1-based, inclusive). */
 function highlightLines(doc: Text, needle: string, fromLine: number, toLine: number) {
@@ -208,15 +217,115 @@ const searchHighlightField = StateField.define<SearchHighlightState>({
   ],
 });
 
+/** Marks the selected match, so it stands out from the other matches. */
+const currentMatchHighlight = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+
+  constructor(view: EditorView) {
+    this.decorations = this.build(view.state);
+  }
+
+  update(update: ViewUpdate) {
+    if (update.docChanged || update.selectionSet || update.startState.field(searchHighlightField) !== update.state.field(searchHighlightField)) {
+      this.decorations = this.build(update.state);
+    }
+  }
+
+  build(state: EditorState): DecorationSet {
+    const { needle } = state.field(searchHighlightField);
+    const { from, to } = state.selection.main;
+
+    if (!needle || from === to || state.sliceDoc(from, to).toLowerCase() !== needle) {
+      return Decoration.none;
+    }
+
+    return Decoration.set(currentMark.range(from, to));
+  }
+}, { decorations: (plugin) => plugin.decorations });
+
+const yamlSearchExtension: Extension = [
+  searchHighlightField,
+  currentMatchHighlight,
+  // Center the match, so it isn't hidden under a sticky search box above the editor
+  search({ scrollToMatch: (range) => EditorView.scrollIntoView(range, { y: 'center' }) }),
+];
+
 /**
  * Highlight the lines that contain `query` (case-insensitive): their key and value
- * are marked and every other line is dimmed. Pass an empty query to clear it. The
+ * are marked and every other line is dimmed. It is also the query that
+ * `findYamlSearchMatch` moves between. Pass an empty query to clear it. The
  * extension is only added to an editor the first time it's used.
  */
 export function setYamlSearch(view: EditorView, query = '') {
   if (!view.state.field(searchHighlightField, false)) {
-    view.dispatch({ effects: StateEffect.appendConfig.of(searchHighlightField) });
+    view.dispatch({ effects: StateEffect.appendConfig.of(yamlSearchExtension) });
   }
 
-  view.dispatch({ effects: setSearchHighlightEffect.of(query) });
+  view.dispatch({
+    effects: [
+      setSearchHighlightEffect.of(query),
+      setSearchQuery.of(new SearchQuery({ search: query, literal: true })),
+    ]
+  });
+}
+
+/**
+ * The position of the selected match, from 1, or 0 when the selection isn't on a
+ * match.
+ */
+export function yamlSearchMatchIndex(state: EditorState): number {
+  const query = getSearchQuery(state);
+  const { from, to } = state.selection.main;
+
+  if (!query.valid || from === to) {
+    return 0;
+  }
+
+  const cursor = query.getCursor(state);
+  let index = 0;
+
+  for (let match = cursor.next(); !match.done && match.value.from <= from; match = cursor.next()) {
+    index++;
+
+    if (match.value.from === from && match.value.to === to) {
+      return index;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Select the first, next or previous match of the query set by `setYamlSearch`
+ * and scroll it into view. Next and previous wrap around, like a browser.
+ * Returns the position of the selected match, from 1, or 0 when there is none.
+ */
+export function findYamlSearchMatch(view: EditorView, direction: 'first' | 'next' | 'previous'): number {
+  const query = getSearchQuery(view.state);
+
+  if (!query.valid) {
+    return 0;
+  }
+
+  if (direction === 'first') {
+    const first = query.getCursor(view.state).next();
+
+    if (first.done) {
+      return 0;
+    }
+
+    const { from, to } = first.value;
+
+    view.dispatch({
+      selection: EditorSelection.single(from, to),
+      effects:   EditorView.scrollIntoView(EditorSelection.range(from, to), { y: 'center' }),
+      userEvent: 'select.search',
+    });
+  } else if (direction === 'next') {
+    findNext(view);
+  } else {
+    findPrevious(view);
+  }
+
+  return yamlSearchMatchIndex(view.state);
 }

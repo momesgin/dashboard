@@ -13,6 +13,12 @@ describe('component: YamlOverridesEditor', () => {
       updateValue() {},
       setLineDecorations() {},
       setSearchHighlight() {},
+      findSearchMatch() {
+        return 0;
+      },
+      searchMatchIndex() {
+        return 0;
+      },
       refresh() {},
     },
   };
@@ -272,6 +278,8 @@ describe('component: YamlOverridesEditor', () => {
     const searchInput = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search"]');
     const countLabel = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-count"]');
     const clearButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-clear"]');
+    const nextButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-next"]');
+    const previousButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-previous"]');
 
     const search = async(wrapper: any, query: string) => {
       await searchInput(wrapper).setValue(query);
@@ -338,6 +346,101 @@ describe('component: YamlOverridesEditor', () => {
       await search(wrapper, 'sachet');
 
       expect(clearButton(wrapper).exists()).toBe(true);
+    });
+
+    it.each([
+      ['next', nextButton],
+      ['previous', previousButton],
+    ])('shows the %p button when there are matches', async(_, button) => {
+      const wrapper = mountEditor();
+
+      await search(wrapper, 'sachet');
+
+      expect(button(wrapper).exists()).toBe(true);
+    });
+
+    it.each([
+      ['next', nextButton],
+      ['previous', previousButton],
+    ])('hides the %p button when nothing matches', async(_, button) => {
+      const wrapper = mountEditor();
+
+      await search(wrapper, 'nothing-here');
+
+      expect(button(wrapper).exists()).toBe(false);
+    });
+
+    it('selects the first match of a new query', async() => {
+      const wrapper = mountEditor();
+      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+
+      await search(wrapper, 'sachet');
+
+      expect(leftFind).toHaveBeenCalledWith('first');
+    });
+
+    it('shows the position of the selected match', async() => {
+      const wrapper = mountEditor();
+
+      jest.spyOn(editors(wrapper).left, 'findSearchMatch').mockReturnValue(1);
+      await search(wrapper, 'sachet');
+
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":1,"total":1}');
+    });
+
+    it.each([
+      ['next', nextButton],
+      ['previous', previousButton],
+    ])('selects the %p match when its button is clicked', async(direction, button) => {
+      const wrapper = mountEditor({ value: 'replicas: 5\nreplicasExtra: 1\n' });
+      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+
+      await search(wrapper, 'replicas');
+      leftFind.mockReturnValue(2);
+      await button(wrapper).trigger('click');
+
+      expect(leftFind).toHaveBeenLastCalledWith(direction);
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":2}');
+    });
+
+    it.each([
+      ['next', {}],
+      ['previous', { shiftKey: true }],
+    ])('selects the %p match when Enter is pressed with %p', async(direction, modifiers) => {
+      const wrapper = mountEditor();
+      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+
+      await search(wrapper, 'sachet');
+      await searchInput(wrapper).trigger('keydown', { key: 'Enter', ...modifiers });
+
+      expect(leftFind).toHaveBeenLastCalledWith(direction);
+    });
+
+    it('runs a waiting search on Enter instead of moving past its first match', async() => {
+      const wrapper = mountEditor();
+      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+
+      await searchInput(wrapper).setValue('sachet');
+      await searchInput(wrapper).trigger('keydown', { key: 'Enter' });
+
+      expect(leftFind.mock.calls).toStrictEqual([['first']]);
+    });
+
+    it('keeps the selection when the chart-defaults document changes', async() => {
+      const wrapper = mountEditor();
+      const { left, right } = editors(wrapper);
+      const leftFind = jest.spyOn(left, 'findSearchMatch');
+
+      await search(wrapper, 'sachet');
+      jest.spyOn(left, 'searchMatchIndex').mockReturnValue(2);
+      right.$emit('update:value', 'replicas: 5\nsachetExtra: 1\n');
+      jest.runAllTimers();
+      await wrapper.vm.$nextTick();
+      jest.runAllTimers();
+      await wrapper.vm.$nextTick();
+
+      expect(leftFind.mock.calls).toStrictEqual([['first']]);
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":2}');
     });
 
     it('shows no matches, no highlight and no clear button when nothing matches', async() => {

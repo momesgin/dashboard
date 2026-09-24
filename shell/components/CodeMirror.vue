@@ -10,7 +10,7 @@ import { KEYMAP } from '@shell/store/prefs';
 import { _EDIT, _VIEW } from '@shell/config/query-params';
 import { setLineClasses } from '@shell/utils/code-mirror-line-classes';
 import type { LineClass } from '@shell/utils/code-mirror-line-classes';
-import { setYamlSearch } from '@shell/utils/yaml-search';
+import { findYamlSearchMatch, setYamlSearch, yamlSearchMatchIndex } from '@shell/utils/yaml-search';
 
 type CodeMirrorMode = string | { name?: string, json?: boolean } | null;
 
@@ -363,6 +363,23 @@ export default defineComponent({
       this.searchHighlightQuery = query;
     },
 
+    /**
+     * Select the first, next or previous match of the search highlight and scroll
+     * it into view. Returns the position of the selected match, from 1, or 0.
+     */
+    findSearchMatch(direction: 'first' | 'next' | 'previous'): number {
+      const view = this.editorView();
+
+      return view && this.searchHighlightQuery ? findYamlSearchMatch(view, direction) : 0;
+    },
+
+    /** The position of the selected search match, from 1, or 0 when it isn't on one. */
+    searchMatchIndex(): number {
+      const view = this.editorView();
+
+      return view && this.searchHighlightQuery ? yamlSearchMatchIndex(view.state) : 0;
+    },
+
     closeKeyMapInfo() {
       this.removeKeyMapBox = true;
     },
@@ -535,6 +552,11 @@ export default defineComponent({
     .yaml-search-value, .yaml-search-value * {
       color: var(--error-hover-bg);
       font-weight: bold;
+    }
+
+    .yaml-search-current {
+      background-color: var(--warning-banner-bg);
+      outline: 1px solid var(--warning);
     }
 
     // Dims the text and the tint of a line without a match. Only the tint is dimmed

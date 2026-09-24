@@ -408,5 +408,35 @@ describe('component: CodeMirror.vue', () => {
 
       expect(wrapper.vm.searchHighlightQuery).toStrictEqual('');
     });
+
+    it.each([
+      ['first', 1],
+      ['next', 1],
+      ['previous', 2],
+    ])('selects the %p match and returns its position %p', (direction, expected) => {
+      const { wrapper } = createReady();
+
+      wrapper.vm.setSearchHighlight('bar');
+
+      expect(wrapper.vm.findSearchMatch(direction as 'first' | 'next' | 'previous')).toStrictEqual(expected);
+    });
+
+    it('returns the position of the selected match', () => {
+      const { wrapper } = createReady();
+
+      wrapper.vm.setSearchHighlight('bar');
+      wrapper.vm.findSearchMatch('previous');
+
+      expect(wrapper.vm.searchMatchIndex()).toStrictEqual(2);
+    });
+
+    it.each([
+      ['findSearchMatch', ['next']],
+      ['searchMatchIndex', []],
+    ])('%p returns 0 without a search highlight', (method, args) => {
+      const { wrapper } = createReady();
+
+      expect((wrapper.vm as any)[method](...args)).toStrictEqual(0);
+    });
   });
 });

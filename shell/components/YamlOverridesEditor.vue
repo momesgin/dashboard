@@ -84,10 +84,12 @@ const overridesTestid = () => `${ props.testidPrefix }-overrides`;
 const searchTestid = () => `${ props.testidPrefix }-defaults-search`;
 
 // The chart-defaults search: what the user typed, the query it ran with (empty
-// until it has MIN_SEARCH_LENGTH characters) and how many matches it found.
+// until it has MIN_SEARCH_LENGTH characters), how many matches it found and the
+// position of the selected match (0 when the selection isn't on a match).
 const searchQuery = ref('');
 const activeSearchQuery = ref('');
 const matchCount = ref(0);
+const currentMatch = ref(0);
 
 /** Run `fn` (a programmatic editor update) without its update:value echo looping back. */
 function withoutEcho(fn: () => void) {
@@ -207,10 +209,16 @@ function onOverridesFocus() {
 // and CodeMirror re-highlights the lines the user edits by itself.
 function runSearch() {
   const query = searchQuery.value.trim();
+  const active = query.length >= MIN_SEARCH_LENGTH ? query : '';
+  const isNewQuery = active !== activeSearchQuery.value;
+  const editor = defaultsEditor.value;
 
-  activeSearchQuery.value = query.length >= MIN_SEARCH_LENGTH ? query : '';
-  matchCount.value = countMatches(defaultsContent.value, activeSearchQuery.value);
-  defaultsEditor.value?.setSearchHighlight(matchCount.value ? activeSearchQuery.value : '');
+  activeSearchQuery.value = active;
+  matchCount.value = countMatches(defaultsContent.value, active);
+  editor?.setSearchHighlight(matchCount.value ? active : '');
+
+  // Like a browser, a new query selects its first match. An edit keeps the selection.
+  currentMatch.value = (isNewQuery ? editor?.findSearchMatch('first') : editor?.searchMatchIndex()) || 0;
 }
 
 const queueSearch = debounce(runSearch, SEARCH_DEBOUNCE_MS);
@@ -235,6 +243,20 @@ watch(defaultsContent, () => {
 
 function clearSearch() {
   searchQuery.value = '';
+}
+
+/** Select the next or previous match (wrapping around) and scroll to it. */
+function goToMatch(direction: 'next' | 'previous') {
+  // A search still waiting for the debounce runs first, which selects its first match.
+  if (searchQuery.value.trim() !== activeSearchQuery.value) {
+    queueSearch.flush();
+
+    return;
+  }
+
+  if (matchCount.value) {
+    currentMatch.value = defaultsEditor.value?.findSearchMatch(direction) || 0;
+  }
 }
 
 // --- External prop changes --------------------------------------------------
@@ -333,18 +355,43 @@ defineExpose({ updateOverrides });
           :aria-label="t('yamlOverridesEditor.search.ariaLabel')"
           :data-testid="searchTestid()"
           @keydown.esc.prevent="clearSearch"
+          @keydown.enter.exact.prevent="goToMatch('next')"
+          @keydown.shift.enter.exact.prevent="goToMatch('previous')"
         >
         <div class="values-search__addons">
+          <button
+            v-if="matchCount"
+            type="button"
+            class="btn role-link values-search__button"
+            :aria-label="t('yamlOverridesEditor.search.next')"
+            :data-testid="`${ searchTestid() }-next`"
+            @click="goToMatch('next')"
+          >
+            <i class="icon icon-chevron-down" />
+          </button>
           <!-- Always rendered so screen readers announce the count when it changes -->
           <span
             class="values-search__count"
             aria-live="polite"
             :data-testid="`${ searchTestid() }-count`"
-          >{{ activeSearchQuery ? t('yamlOverridesEditor.search.matches', { count: matchCount }) : '' }}</span>
+          >
+            <template v-if="currentMatch">{{ t('yamlOverridesEditor.search.position', { current: currentMatch, total: matchCount }) }}</template>
+            <template v-else-if="activeSearchQuery">{{ t('yamlOverridesEditor.search.matches', { count: matchCount }) }}</template>
+          </span>
           <button
             v-if="matchCount"
             type="button"
-            class="btn role-link values-search__clear"
+            class="btn role-link values-search__button"
+            :aria-label="t('yamlOverridesEditor.search.previous')"
+            :data-testid="`${ searchTestid() }-previous`"
+            @click="goToMatch('previous')"
+          >
+            <i class="icon icon-chevron-up" />
+          </button>
+          <button
+            v-if="matchCount"
+            type="button"
+            class="btn role-link values-search__button"
             :aria-label="t('yamlOverridesEditor.search.clear')"
             :data-testid="`${ searchTestid() }-clear`"
             @click="clearSearch"
@@ -424,12 +471,18 @@ defineExpose({ updateOverrides });
   }
 
   .values-search {
-    position: relative;
-    margin-bottom: 8px;
+    // Stays in view while the page scrolls through a long document, above the
+    // editor (whose container has `z-index: 0`).
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-bottom: 8px;
+    background-color: var(--body-bg);
 
     &__icon {
       position: absolute;
-      top: 50%;
+      // Centered on the input, above the bottom padding.
+      top: calc(50% - 4px);
       left: 12px;
       transform: translateY(-50%);
       color: var(--input-placeholder);
@@ -446,16 +499,16 @@ defineExpose({ updateOverrides });
       }
     }
 
-    // Make room so the typed text doesn't run under the count and the clear button.
+    // Make room so the typed text doesn't run under the count and the buttons.
     &--active &__input {
-      padding-right: 150px;
+      padding-right: 180px;
     }
 
     &__addons {
       position: absolute;
       top: 0;
       right: 0;
-      bottom: 0;
+      bottom: 8px;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -470,7 +523,7 @@ defineExpose({ updateOverrides });
       white-space: nowrap;
     }
 
-    &__clear {
+    &__button {
       color: var(--muted);
       pointer-events: auto;
       min-height: 0;
