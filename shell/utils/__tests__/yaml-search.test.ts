@@ -1,6 +1,5 @@
-import {
-  countMatches, yamlSearchSegments, createYamlSearchOverlay, SEARCH_STYLE, SEARCH_DIM_LINE_CLASS, YAML_SEARCH_OVERLAY
-} from '@shell/utils/yaml-search';
+import { EditorView, lineNumbers } from '@codemirror/view';
+import { countMatches, yamlSearchSegments, setYamlSearch, SEARCH_STYLE } from '@shell/utils/yaml-search';
 
 const { KEY, VALUE, DIM } = SEARCH_STYLE;
 
@@ -33,10 +32,6 @@ describe('fx: yaml-search', () => {
   describe('yamlSearchSegments', () => {
     it('dims a line without a match', () => {
       expect(yamlSearchSegments('  replicas: 2', 'bar')).toStrictEqual([{ end: 13, style: DIM }]);
-    });
-
-    it('marks the line background of a line without a match', () => {
-      expect(DIM).toStrictEqual(`yaml-search-dim line-background-${ SEARCH_DIM_LINE_CLASS }`);
     });
 
     it('returns no segments for an empty line', () => {
@@ -120,65 +115,89 @@ describe('fx: yaml-search', () => {
     });
   });
 
-  describe('createYamlSearchOverlay', () => {
-    // Run the overlay over one line the way CodeMirror does, collecting each token.
-    const tokenize = (overlay: ReturnType<typeof createYamlSearchOverlay>, line: string) => {
-      const stream = {
-        string: line,
-        pos:    0,
-        skipToEnd() {
-          this.pos = line.length;
-        },
-      };
-      const tokens: [string, string | null][] = [];
+  describe('codeMirror 6 extension', () => {
+    const DOC = 'foo: bar\nreplicas: 2\nlist:\n  - Bar\nbaz: foobar';
 
-      while (stream.pos < line.length) {
-        const start = stream.pos;
-        const style = overlay.token(stream);
+    const createView = (doc = DOC) => new EditorView({ doc, extensions: [lineNumbers()] });
+    const lineClasses = (view: EditorView) => Array.from(view.contentDOM.querySelectorAll('.cm-line')).map((l) => l.className);
+    const marked = (view: EditorView, className: string) => Array.from(view.contentDOM.querySelectorAll(`.${ className }`)).map((el) => el.textContent);
+    const gutterClasses = (view: EditorView) => Array.from(view.dom.querySelectorAll('.cm-lineNumbers .cm-gutterElement'))
+      .filter((el) => /^\d+$/.test(el.textContent || '') && !(el as HTMLElement).style.visibility)
+      .map((el) => el.className);
 
-        tokens.push([line.slice(start, stream.pos), style]);
-      }
+    describe('setYamlSearch', () => {
+      it('marks the key and the value of each matched line', () => {
+        const view = createView();
 
-      return tokens;
-    };
+        setYamlSearch(view, 'BAR');
 
-    it('is named so it can be removed by name', () => {
-      expect(createYamlSearchOverlay('bar').name).toStrictEqual(YAML_SEARCH_OVERLAY);
-    });
+        expect(marked(view, KEY)).toStrictEqual(['foo:', 'baz:']);
+        expect(marked(view, VALUE)).toStrictEqual(['bar', 'Bar', 'foobar']);
+      });
 
-    it('tokenizes a matched line into key and value', () => {
-      const overlay = createYamlSearchOverlay('BAR');
+      it('dims the lines without a match', () => {
+        const view = createView();
 
-      expect(tokenize(overlay, '  foo: bar')).toStrictEqual([
-        ['  ', null],
-        ['foo:', KEY],
-        [' ', null],
-        ['bar', VALUE],
-      ]);
-    });
+        setYamlSearch(view, 'bar');
 
-    it('dims an unmatched line in a single token', () => {
-      const overlay = createYamlSearchOverlay('bar');
+        expect(lineClasses(view)).toStrictEqual(['cm-line', `cm-line ${ DIM }`, `cm-line ${ DIM }`, 'cm-line', 'cm-line']);
+      });
 
-      expect(tokenize(overlay, 'replicas: 2')).toStrictEqual([['replicas: 2', DIM]]);
-    });
+      it('dims the gutters of the lines without a match', () => {
+        const view = createView();
 
-    it('tokenizes each new line afresh', () => {
-      const overlay = createYamlSearchOverlay('bar');
+        setYamlSearch(view, 'bar');
 
-      tokenize(overlay, 'foo: bar');
+        expect(gutterClasses(view)).toStrictEqual([
+          'cm-gutterElement', `cm-gutterElement ${ DIM }`, `cm-gutterElement ${ DIM }`, 'cm-gutterElement', 'cm-gutterElement'
+        ]);
+      });
 
-      expect(tokenize(overlay, 'baz: 1')).toStrictEqual([['baz: 1', DIM]]);
-    });
+      it('replaces the highlight when the query changes', () => {
+        const view = createView();
 
-    it('skips to the end if asked for a position past the last segment', () => {
-      const overlay = createYamlSearchOverlay('bar');
-      const stream = {
-        string: 'foo: bar', pos: 8, skipToEnd: jest.fn()
-      };
+        setYamlSearch(view, 'bar');
+        setYamlSearch(view, 'replicas');
 
-      expect(overlay.token(stream)).toBeNull();
-      expect(stream.skipToEnd).toHaveBeenCalledWith();
+        expect(marked(view, KEY)).toStrictEqual(['replicas:']);
+      });
+
+      it('clears the highlight for an empty query', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        setYamlSearch(view, '');
+
+        expect(lineClasses(view)).toStrictEqual(['cm-line', 'cm-line', 'cm-line', 'cm-line', 'cm-line']);
+      });
+
+      it('highlights a line again once it is edited to match', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        view.dispatch({ changes: { from: view.state.doc.line(2).to, insert: 'bar' } });
+
+        expect(marked(view, VALUE)).toStrictEqual(['bar', '2bar', 'Bar', 'foobar']);
+        expect(lineClasses(view)[1]).toStrictEqual('cm-line');
+      });
+
+      it('dims a line again once its match is removed', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        view.dispatch({ changes: { from: 5, to: 8 } });
+
+        expect(lineClasses(view)[0]).toStrictEqual(`cm-line ${ DIM }`);
+      });
+
+      it('leaves the lines that were not edited alone', () => {
+        const view = createView();
+
+        setYamlSearch(view, 'bar');
+        view.dispatch({ changes: { from: 0, insert: 'x' } });
+
+        expect(lineClasses(view)).toStrictEqual(['cm-line', `cm-line ${ DIM }`, `cm-line ${ DIM }`, 'cm-line', 'cm-line']);
+      });
     });
   });
 });

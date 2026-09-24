@@ -1,5 +1,8 @@
 import { nextTick } from 'vue';
 import { shallowMount, VueWrapper } from '@vue/test-utils';
+import type { Extension } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
+import { RcCodeMirror } from '@components/RcCodeMirror';
 import CodeMirror from '@shell/components/CodeMirror.vue';
 import { _EDIT, _VIEW, _YAML } from '@shell/config/query-params';
 
@@ -52,10 +55,6 @@ describe('component: CodeMirror.vue', () => {
 
   // eslint-disable-next-line jest/no-disabled-tests
   describe('keyMap info', () => {
-    (window as any).__codeMirrorLoader = () => new Promise((resolve) => {
-      resolve(true);
-    });
-
     wrapper = shallowMount(
       CodeMirror,
       mountOptions,
@@ -91,44 +90,234 @@ describe('component: CodeMirror.vue', () => {
     });
   });
 
+  describe('rcCodeMirror props', () => {
+    const createWrapper = (props = {}, getters = {}) => shallowMount(CodeMirror, {
+      ...mountOptions,
+      props:  { ...mountOptions.props, ...props },
+      global: {
+        mocks: {
+          ...mountOptions.global.mocks,
+          $store: {
+            getters: {
+              ...mountOptions.global.mocks.$store.getters,
+              'prefs/get':   () => 'sublime',
+              'prefs/theme': 'light',
+              ...getters
+            }
+          }
+        }
+      }
+    });
+
+    it.each([
+      [undefined, 'yaml'],
+      ['yaml', 'yaml'],
+      ['json', 'json'],
+      [{ name: 'javascript', json: true }, 'json'],
+      [null, undefined],
+      ['text/x-properties', undefined],
+    ])('should map mode %p to language %p', (mode, language) => {
+      const options = mode === undefined ? {} : { mode };
+      const rc = createWrapper({ options }).findComponent(RcCodeMirror);
+
+      expect(rc.props('language')).toStrictEqual(language);
+    });
+
+    it.each([
+      ['sublime', 'default'],
+      ['vim', 'vim'],
+      ['emacs', 'emacs'],
+    ])('should map keymap preference %p to keymap %p', (pref, keymap) => {
+      const rc = createWrapper({}, { 'prefs/get': () => pref }).findComponent(RcCodeMirror);
+
+      expect(rc.props('keymap')).toStrictEqual(keymap);
+    });
+
+    it.each([
+      ['dark', 'rancher'],
+      ['light', 'rancher'],
+    ])('should use the Rancher theme with %p preference', (pref, theme) => {
+      const rc = createWrapper({}, { 'prefs/theme': pref }).findComponent(RcCodeMirror);
+
+      expect(rc.props('theme')).toStrictEqual(theme);
+    });
+
+    it.each([
+      [_EDIT, {}, false],
+      [_VIEW, {}, true],
+      [_EDIT, { readOnly: true }, true],
+    ])('should set read only for mode %p and options %p to %p', (mode, options, readOnly) => {
+      const rc = createWrapper({ mode, options }).findComponent(RcCodeMirror);
+
+      expect(rc.props('readOnly')).toStrictEqual(readOnly);
+    });
+
+    it.each([
+      [true, 'input'],
+      [false, 'editor'],
+    ])('should map asTextArea %p to variant %p', (asTextArea, variant) => {
+      const rc = createWrapper({ asTextArea }).findComponent(RcCodeMirror);
+
+      expect(rc.props('variant')).toStrictEqual(variant);
+    });
+
+    it('should not bind Tab to indent when displayed as a text area', () => {
+      const extensions = createWrapper({ asTextArea: true }).findComponent(RcCodeMirror).props('extensions') as Extension[];
+      const editor = createWrapper({ asTextArea: false }).findComponent(RcCodeMirror).props('extensions') as Extension[];
+
+      expect(extensions).toHaveLength(editor.length - 1);
+    });
+
+    it('should show line numbers and fold gutter by default', () => {
+      const rc = createWrapper().findComponent(RcCodeMirror);
+
+      expect(rc.props('lineNumbers')).toStrictEqual(true);
+      expect(rc.props('foldGutter')).toStrictEqual(true);
+    });
+
+    it('should pass through additional extensions', () => {
+      const extension = EditorView.lineWrapping;
+      const rc = createWrapper({ extensions: [extension] }).findComponent(RcCodeMirror);
+
+      expect(rc.props('extensions')).toContain(extension);
+    });
+  });
+
+  describe('events', () => {
+    const createWrapper = (props = {}) => shallowMount(CodeMirror, {
+      ...mountOptions,
+      props: { ...mountOptions.props, ...props },
+    });
+
+    it('should emit onInput when the editor content changes', () => {
+      const wrapper = createWrapper();
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('update:modelValue', 'foo: bar');
+
+      expect(wrapper.emitted('onInput')).toStrictEqual([['foo: bar']]);
+    });
+
+    it('should emit onFocus with the focus state', () => {
+      const wrapper = createWrapper();
+      const rc = wrapper.findComponent(RcCodeMirror);
+
+      rc.vm.$emit('focus');
+      rc.vm.$emit('blur');
+
+      expect(wrapper.emitted('onFocus')).toStrictEqual([[true], [false]]);
+    });
+
+    it('should emit onReady with the editor view', () => {
+      const wrapper = createWrapper();
+      const view = new EditorView({ doc: '' });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
+
+      expect(wrapper.emitted('onReady')).toStrictEqual([[view]]);
+    });
+  });
+
+  describe('yaml lint', () => {
+    const createWrapper = (props = {}) => shallowMount(CodeMirror, {
+      ...mountOptions,
+      props: { ...mountOptions.props, ...props },
+    });
+
+    it('should emit valid when the editor is ready with valid yaml', () => {
+      const wrapper = createWrapper({ value: 'foo: bar' });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('ready', new EditorView({ doc: 'foo: bar' }));
+
+      expect(wrapper.emitted('validationChanged')).toStrictEqual([[true]]);
+    });
+
+    it('should emit invalid when the content becomes invalid yaml', async() => {
+      const wrapper = createWrapper({ value: 'foo: bar' });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('update:modelValue', 'foo: [');
+      await nextTick();
+
+      expect(wrapper.emitted('validationChanged')).toStrictEqual([[false]]);
+    });
+
+    it('should emit valid when invalid content is corrected', async() => {
+      const wrapper = createWrapper({ value: 'foo: [' });
+      const rc = wrapper.findComponent(RcCodeMirror);
+
+      rc.vm.$emit('update:modelValue', 'foo: [');
+      await nextTick();
+      rc.vm.$emit('update:modelValue', 'foo: []');
+      await nextTick();
+
+      expect(wrapper.emitted('validationChanged')).toStrictEqual([[false], [true]]);
+    });
+
+    it('should accept multiple yaml documents', async() => {
+      const wrapper = createWrapper();
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('update:modelValue', 'foo: bar\n---\nbaz: qux');
+      await nextTick();
+
+      expect(wrapper.emitted('validationChanged')).toBeUndefined();
+    });
+
+    it('should not lint when lint is disabled', async() => {
+      const wrapper = createWrapper({ options: { lint: false } });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('update:modelValue', 'foo: [');
+      await nextTick();
+
+      expect(wrapper.emitted('validationChanged')).toBeUndefined();
+    });
+  });
+
+  describe('updateValue', () => {
+    it('should replace the editor content', () => {
+      const wrapper = shallowMount(CodeMirror, mountOptions);
+      const view = new EditorView({ doc: 'foo: bar' });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
+      (wrapper.vm as any).updateValue('baz: qux');
+
+      expect(view.state.doc.toString()).toStrictEqual('baz: qux');
+    });
+  });
+
   describe('keyboard tab navigation', () => {
     const mountWithMode = (mode: string) => shallowMount(CodeMirror, {
       ...mountOptions,
       props: { ...mountOptions.props, mode },
     });
 
-    it('takes a read-only editor out of the tab order once ready', async() => {
+    it('takes a read-only editor out of the tab order once ready', () => {
       const readOnlyWrapper = mountWithMode(_VIEW);
-      const inputField = { tabIndex: 0 };
-      const codeMirrorRef = { refresh: jest.fn(), getInputField: () => inputField };
+      const view = new EditorView({ doc: '' });
 
-      readOnlyWrapper.vm.onReady(codeMirrorRef);
-      await nextTick();
+      readOnlyWrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
 
-      expect(inputField.tabIndex).toBe(-1);
+      expect(view.contentDOM.tabIndex).toStrictEqual(-1);
     });
 
-    it('keeps an editable editor in the tab order', async() => {
+    it('keeps an editable editor in the tab order', () => {
       const editWrapper = mountWithMode(_EDIT);
-      const inputField = { tabIndex: 0 };
-      const codeMirrorRef = { refresh: jest.fn(), getInputField: () => inputField };
+      const view = new EditorView({ doc: '' });
+      const tabIndex = view.contentDOM.tabIndex;
 
-      editWrapper.vm.onReady(codeMirrorRef);
-      await nextTick();
+      editWrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
 
-      expect(inputField.tabIndex).toBe(0);
+      expect(view.contentDOM.tabIndex).toStrictEqual(tabIndex);
     });
 
     it('sets container tabindex to 0 for a read-only editor so it can be focused', () => {
       const readOnlyWrapper = mountWithMode(_VIEW);
 
-      expect(readOnlyWrapper.vm.codeMirrorContainerTabIndex).toBe(0);
+      expect(readOnlyWrapper.vm.codeMirrorContainerTabIndex).toStrictEqual(0);
     });
 
     it('sets container tabindex to -1 for an unfocused editable editor', () => {
       const editWrapper = mountWithMode(_EDIT);
 
-      expect(editWrapper.vm.codeMirrorContainerTabIndex).toBe(-1);
+      expect(editWrapper.vm.codeMirrorContainerTabIndex).toStrictEqual(-1);
     });
 
     it('sets container tabindex to 0 for a focused editable editor', async() => {
@@ -137,176 +326,87 @@ describe('component: CodeMirror.vue', () => {
       editWrapper.vm.onFocus();
       await nextTick();
 
-      expect(editWrapper.vm.codeMirrorContainerTabIndex).toBe(0);
+      expect(editWrapper.vm.codeMirrorContainerTabIndex).toStrictEqual(0);
     });
   });
 
   describe('setLineDecorations', () => {
-    // The decoration methods only touch `this.$refs` and the tracking arrays, so
-    // drive them with a controlled `this` rather than fighting Vue's template refs.
-    const methods = (CodeMirror as any).methods;
+    const lineClasses = (view: EditorView) => Array.from(view.contentDOM.querySelectorAll('.cm-line')).map((l) => l.className);
 
-    const mockInstance = (lineCount = 5) => ({
-      lineCount:       () => lineCount,
-      addLineClass:    jest.fn(),
-      removeLineClass: jest.fn(),
+    it('tints the given lines of the editor', () => {
+      const wrapper = shallowMount(CodeMirror, mountOptions);
+      const view = new EditorView({ doc: 'a: 1\nb: 2' });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
+      wrapper.vm.setLineDecorations([{ line: 1 }]);
+
+      expect(lineClasses(view)).toStrictEqual(['cm-line', 'cm-line line-override-highlight']);
     });
 
-    const makeCtx = (cminstance: any) => {
-      const ctx: any = {
-        $refs:              { codeMirrorRef: cminstance ? { cminstance } : null },
-        appliedLineClasses: [],
-      };
+    it('does nothing when the editor is not ready', () => {
+      const wrapper = shallowMount(CodeMirror, mountOptions);
 
-      ['setLineDecorations', 'clearLineDecorations'].forEach((m) => {
-        ctx[m] = methods[m];
-      });
-
-      return ctx;
-    };
-
-    it('tints the code area and the gutter of each in-range line and tracks both', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
-
-      ctx.setLineDecorations([{ line: 0 }, { line: 2 }]);
-
-      // Two lines x two wheres ('background' + 'gutter').
-      expect(cminstance.addLineClass).toHaveBeenCalledTimes(4);
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(0, 'background', 'line-override-highlight');
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(0, 'gutter', 'line-override-highlight');
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(2, 'background', 'line-override-highlight');
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(2, 'gutter', 'line-override-highlight');
-      expect(ctx.appliedLineClasses).toHaveLength(4);
-    });
-
-    it('honours a custom className', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
-
-      ctx.setLineDecorations([{ line: 1, className: 'my-class' }]);
-
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(1, 'background', 'my-class');
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(1, 'gutter', 'my-class');
-    });
-
-    it('ignores line numbers outside the document bounds', () => {
-      const cminstance = mockInstance(3);
-      const ctx = makeCtx(cminstance);
-
-      ctx.setLineDecorations([{ line: -1 }, { line: 1 }, { line: 3 }, { line: 99 }]);
-
-      // Only line 1 is in range: 'background' + 'gutter'.
-      expect(cminstance.addLineClass).toHaveBeenCalledTimes(2);
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(1, 'background', 'line-override-highlight');
-      expect(cminstance.addLineClass).toHaveBeenCalledWith(1, 'gutter', 'line-override-highlight');
-      expect(ctx.appliedLineClasses).toHaveLength(2);
-    });
-
-    it('clears the previous decorations before applying new ones', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
-
-      ctx.setLineDecorations([{ line: 0 }]);
-      ctx.setLineDecorations([{ line: 2 }]);
-
-      expect(cminstance.removeLineClass).toHaveBeenCalledWith(0, 'background', 'line-override-highlight');
-      expect(cminstance.removeLineClass).toHaveBeenCalledWith(0, 'gutter', 'line-override-highlight');
-      expect(ctx.appliedLineClasses).toStrictEqual([
-        {
-          line: 2, where: 'background', className: 'line-override-highlight'
-        },
-        {
-          line: 2, where: 'gutter', className: 'line-override-highlight'
-        },
-      ]);
-    });
-
-    it('clearLineDecorations removes the classes previously applied', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
-
-      ctx.setLineDecorations([{ line: 1 }]);
-      ctx.clearLineDecorations();
-
-      expect(cminstance.removeLineClass).toHaveBeenCalledWith(1, 'background', 'line-override-highlight');
-      expect(cminstance.removeLineClass).toHaveBeenCalledWith(1, 'gutter', 'line-override-highlight');
-      expect(ctx.appliedLineClasses).toStrictEqual([]);
-    });
-
-    it('is a no-op when the editor instance is not ready', () => {
-      const ctx = makeCtx(null);
-
-      expect(() => ctx.setLineDecorations([{ line: 0 }])).not.toThrow();
-      expect(ctx.appliedLineClasses).toStrictEqual([]);
+      expect(() => wrapper.vm.setLineDecorations([{ line: 0 }])).not.toThrow();
     });
   });
 
-  describe('setSearchHighlight', () => {
-    // Same approach as the decorations: a controlled `this` with a mock instance.
-    const methods = (CodeMirror as any).methods;
+  describe('search highlight', () => {
+    const DOC = 'foo: bar\nbaz: bar';
 
-    const mockInstance = () => ({
-      addOverlay:    jest.fn(),
-      removeOverlay: jest.fn(),
+    const createReady = () => {
+      const wrapper = shallowMount(CodeMirror, mountOptions);
+      const view = new EditorView({ doc: DOC });
+
+      wrapper.findComponent(RcCodeMirror).vm.$emit('ready', view);
+
+      return { wrapper, view };
+    };
+
+    it('highlights the matches and remembers the query', () => {
+      const { wrapper, view } = createReady();
+
+      wrapper.vm.setSearchHighlight('bar');
+
+      expect(view.contentDOM.querySelectorAll('.yaml-search-value')).toHaveLength(2);
+      expect(wrapper.vm.searchHighlightQuery).toStrictEqual('bar');
     });
 
-    const makeCtx = (cminstance: any) => ({
-      $refs:                { codeMirrorRef: cminstance ? { cminstance } : null },
-      searchHighlightQuery: '',
-      setSearchHighlight:   methods.setSearchHighlight,
+    it('sets the search-highlighted class while there is a query', async() => {
+      const { wrapper } = createReady();
+
+      wrapper.vm.setSearchHighlight('bar');
+      await nextTick();
+
+      expect(wrapper.classes()).toContain('search-highlighted');
     });
 
-    it('adds the search overlay and remembers the query', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
+    it('removes the search-highlighted class for an empty query', async() => {
+      const { wrapper } = createReady();
 
-      ctx.setSearchHighlight('bar');
+      wrapper.vm.setSearchHighlight('bar');
+      wrapper.vm.setSearchHighlight('');
+      await nextTick();
 
-      expect(cminstance.addOverlay).toHaveBeenCalledWith(expect.objectContaining({ name: 'yaml-search' }));
-      expect(ctx.searchHighlightQuery).toStrictEqual('bar');
+      expect(wrapper.classes()).not.toContain('search-highlighted');
     });
 
-    it('replaces the overlay when the query changes', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
+    it('does not update the editor when the query has not changed', () => {
+      const { wrapper, view } = createReady();
+      const dispatch = jest.spyOn(view, 'dispatch');
 
-      ctx.setSearchHighlight('bar');
-      ctx.setSearchHighlight('baz');
+      wrapper.vm.setSearchHighlight('bar');
+      dispatch.mockClear();
+      wrapper.vm.setSearchHighlight('bar');
 
-      expect(cminstance.removeOverlay).toHaveBeenLastCalledWith('yaml-search');
-      expect(cminstance.addOverlay).toHaveBeenCalledTimes(2);
-      expect(ctx.searchHighlightQuery).toStrictEqual('baz');
+      expect(dispatch).not.toHaveBeenCalled();
     });
 
-    it('does nothing when the query has not changed', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
+    it('does nothing when the editor is not ready', () => {
+      const wrapper = shallowMount(CodeMirror, mountOptions);
 
-      ctx.setSearchHighlight('bar');
-      ctx.setSearchHighlight('bar');
+      wrapper.vm.setSearchHighlight('bar');
 
-      expect(cminstance.addOverlay).toHaveBeenCalledTimes(1);
-      expect(cminstance.removeOverlay).toHaveBeenCalledTimes(1);
-    });
-
-    it('removes the overlay without adding a new one for an empty query', () => {
-      const cminstance = mockInstance();
-      const ctx = makeCtx(cminstance);
-
-      ctx.setSearchHighlight('bar');
-      ctx.setSearchHighlight('');
-
-      expect(cminstance.removeOverlay).toHaveBeenLastCalledWith('yaml-search');
-      expect(cminstance.addOverlay).toHaveBeenCalledTimes(1);
-      expect(ctx.searchHighlightQuery).toStrictEqual('');
-    });
-
-    it('is a no-op when the editor instance is not ready', () => {
-      const ctx = makeCtx(null);
-
-      expect(() => ctx.setSearchHighlight('bar')).not.toThrow();
-      expect(ctx.searchHighlightQuery).toStrictEqual('');
+      expect(wrapper.vm.searchHighlightQuery).toStrictEqual('');
     });
   });
 });

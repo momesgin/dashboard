@@ -7,6 +7,7 @@ import TabbedPo from '@/cypress/e2e/po/components/tabbed.po';
 import LabeledSelectPo from '@/cypress/e2e/po/components/labeled-select.po';
 import ChartInstalledAppsListPagePo from '@/cypress/e2e/po/pages/chart-installed-apps.po';
 import { NamespaceFilterPo } from '@/cypress/e2e/po/components/namespace-filter.po';
+import { EditorView } from '@codemirror/view';
 
 const configMapPayload = {
   apiVersion: 'v1',
@@ -104,12 +105,12 @@ describe('Charts Wizard', { testIsolation: false, tags: ['@charts', '@adminUser'
 
       // An override typed into the overrides pane appears in the chart-defaults
       // pane (the defaults + overrides merge kept in sync via the watcher). Read
-      // the live CodeMirror instance in a retrying assertion so we wait for the
+      // the live editor view in a retrying assertion so we wait for the
       // async ($nextTick) sync rather than reading its value once.
       installChartPage.overridesEditor().set('e2eTestOverride: hello-e2e\n');
 
       installChartPage.defaultsEditor().self().should(($cm) => {
-        const mergedValues = ($cm[0] as any).CodeMirror.getValue();
+        const mergedValues = EditorView.findFromDOM($cm[0])?.state.doc.toString();
 
         expect(mergedValues).to.contain('e2eTestOverride');
         expect(mergedValues).to.contain('hello-e2e');

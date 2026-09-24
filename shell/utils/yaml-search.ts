@@ -1,30 +1,26 @@
 /**
- * Helpers for searching a YAML document shown in a CodeMirror editor (see
+ * Helpers for searching a YAML document shown in a CodeMirror 6 editor (see
  * YamlOverridesEditor.vue). Matching works like a browser's find in page: a plain,
  * case-insensitive substring match, so "bar" also matches "fooBar".
  */
+import { RangeSet, StateEffect, StateField } from '@codemirror/state';
+import type { Range, Text } from '@codemirror/state';
+import { Decoration, EditorView, GutterMarker, gutterLineClass } from '@codemirror/view';
+import type { DecorationSet } from '@codemirror/view';
+import { LineClassMarker } from '@shell/utils/code-mirror-line-classes';
 
 /** The search only runs once the query has at least this many characters. */
 export const MIN_SEARCH_LENGTH = 3;
 
-/** Name of the CodeMirror overlay, so it can be removed by name. */
-export const YAML_SEARCH_OVERLAY = 'yaml-search';
-
 /**
- * Class CodeMirror puts on the line background of a line without a match, so the
- * tint of a changed line can be dimmed like its text.
- */
-export const SEARCH_DIM_LINE_CLASS = 'yaml-search-dim-line';
-
-/**
- * Token styles returned by the overlay. CodeMirror turns them into `cm-<style>`
- * classes on the text, which CodeMirror.vue styles. A `line-background-<class>`
- * style puts `<class>` on the line background instead.
+ * Classes of the search results, styled in CodeMirror.vue. The key and the value
+ * of a line with a match are marked. A line without a match gets the dim class on
+ * the line and on its gutters, so the tint of a changed line is dimmed too.
  */
 export const SEARCH_STYLE = {
   KEY:   'yaml-search-key',
   VALUE: 'yaml-search-value',
-  DIM:   `yaml-search-dim line-background-${ SEARCH_DIM_LINE_CLASS }`,
+  DIM:   'yaml-search-dim-line',
 };
 
 /** A styled range of a line, from the end of the previous segment up to `end`. */
@@ -62,7 +58,7 @@ export function countMatches(text: string, query: string): number {
 }
 
 /**
- * Split one line into styled segments for the search overlay. A line that
+ * Split one line into styled segments for the search highlight. A line that
  * contains the (lowercased) `needle` gets its whole key (with the colon) and its
  * whole value styled. Any other line is dimmed. Indentation, dashes and the space
  * after a colon are left unstyled.
@@ -106,39 +102,121 @@ export function yamlSearchSegments(line: string, needle: string): SearchSegment[
   return segments;
 }
 
-/**
- * Build a CodeMirror overlay mode that styles the search results. CodeMirror only
- * runs an overlay for the lines it renders (and the rest in small background
- * chunks), so this stays fast even on huge documents. It is also re-run
- * automatically for lines the user edits.
- */
-export function createYamlSearchOverlay(query: string) {
-  const needle = (query || '').toLowerCase();
-  // CodeMirror asks for the tokens of one line in order, so cache that line's
-  // segments instead of recomputing them for every token.
-  let cachedLine: string | null = null;
-  let cachedSegments: SearchSegment[] = [];
+// --- CodeMirror 6 -----------------------------------------------------------
+
+interface SearchHighlightState {
+  needle: string;
+  decorations: DecorationSet;
+  gutters: RangeSet<GutterMarker>;
+}
+
+const setSearchHighlightEffect = StateEffect.define<string>();
+
+const keyMark = Decoration.mark({ class: SEARCH_STYLE.KEY });
+const valueMark = Decoration.mark({ class: SEARCH_STYLE.VALUE });
+const dimLine = Decoration.line({ class: SEARCH_STYLE.DIM });
+const dimGutter = new LineClassMarker(SEARCH_STYLE.DIM);
+
+/** The search highlight of the lines `fromLine` to `toLine` (1-based, inclusive). */
+function highlightLines(doc: Text, needle: string, fromLine: number, toLine: number) {
+  const decorations: Range<Decoration>[] = [];
+  const gutters: Range<GutterMarker>[] = [];
+
+  for (let n = fromLine; n <= toLine; n++) {
+    const line = doc.line(n);
+    let pos = line.from;
+
+    yamlSearchSegments(line.text, needle).forEach((segment) => {
+      const end = line.from + segment.end;
+
+      if (segment.style === SEARCH_STYLE.DIM) {
+        decorations.push(dimLine.range(line.from));
+        gutters.push(dimGutter.range(line.from));
+      } else if (segment.style) {
+        decorations.push((segment.style === SEARCH_STYLE.KEY ? keyMark : valueMark).range(pos, end));
+      }
+
+      pos = end;
+    });
+  }
+
+  return { decorations, gutters };
+}
+
+const noSearchHighlight: SearchHighlightState = {
+  needle: '', decorations: Decoration.none, gutters: RangeSet.empty
+};
+
+function buildSearchHighlight(doc: Text, needle: string): SearchHighlightState {
+  if (!needle) {
+    return noSearchHighlight;
+  }
+
+  const { decorations, gutters } = highlightLines(doc, needle, 1, doc.lines);
 
   return {
-    name: YAML_SEARCH_OVERLAY,
-
-    token(stream: { string: string, pos: number, skipToEnd: () => void }) {
-      if (stream.string !== cachedLine) {
-        cachedLine = stream.string;
-        cachedSegments = yamlSearchSegments(stream.string, needle);
-      }
-
-      const segment = cachedSegments.find((s) => s.end > stream.pos);
-
-      if (!segment) {
-        stream.skipToEnd();
-
-        return null;
-      }
-
-      stream.pos = segment.end;
-
-      return segment.style;
-    },
+    needle, decorations: Decoration.set(decorations, true), gutters: RangeSet.of(gutters, true)
   };
+}
+
+const searchHighlightField = StateField.define<SearchHighlightState>({
+  create: () => noSearchHighlight,
+
+  update(value, tr) {
+    let next = value;
+
+    tr.effects.forEach((e) => {
+      if (e.is(setSearchHighlightEffect)) {
+        next = buildSearchHighlight(tr.state.doc, e.value.toLowerCase());
+      }
+    });
+
+    if (next !== value || !tr.docChanged || !value.needle) {
+      return next;
+    }
+
+    // Only highlight the lines that were edited again, so typing stays fast on a
+    // large document.
+    const doc = tr.state.doc;
+    let decorations = value.decorations.map(tr.changes);
+    let gutters = value.gutters.map(tr.changes);
+
+    tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+      const from = doc.lineAt(fromB);
+      const to = doc.lineAt(toB);
+      const added = highlightLines(doc, value.needle, from.number, to.number);
+      const range = {
+        filterFrom: from.from, filterTo: to.to, filter: () => false
+      };
+
+      decorations = decorations.update({
+        ...range, add: added.decorations, sort: true
+      });
+      gutters = gutters.update({
+        ...range, add: added.gutters, sort: true
+      });
+    });
+
+    return {
+      needle: value.needle, decorations, gutters
+    };
+  },
+
+  provide: (field) => [
+    EditorView.decorations.from(field, (value) => value.decorations),
+    gutterLineClass.from(field, (value) => value.gutters),
+  ],
+});
+
+/**
+ * Highlight the lines that contain `query` (case-insensitive): their key and value
+ * are marked and every other line is dimmed. Pass an empty query to clear it. The
+ * extension is only added to an editor the first time it's used.
+ */
+export function setYamlSearch(view: EditorView, query = '') {
+  if (!view.state.field(searchHighlightField, false)) {
+    view.dispatch({ effects: StateEffect.appendConfig.of(searchHighlightField) });
+  }
+
+  view.dispatch({ effects: setSearchHighlightEffect.of(query) });
 }

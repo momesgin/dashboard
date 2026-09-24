@@ -3,6 +3,7 @@ import jsyaml from 'js-yaml';
 import { mapPref, DIFF } from '@shell/store/prefs';
 import isEmpty from 'lodash/isEmpty';
 import { saferDump } from '@shell/utils/create-yaml';
+import { commentFoldService } from '@components/RcCodeMirror';
 import CodeMirror from './CodeMirror';
 import FileDiff from './FileDiff';
 
@@ -15,7 +16,7 @@ export const EDITOR_MODES = {
 export default {
   name: 'YamlEditor',
 
-  emits: ['update:value', 'newObject', 'onInput', 'onReady', 'onChanges', 'validationChanged'],
+  emits: ['update:value', 'newObject', 'onInput', 'onReady', 'validationChanged'],
 
   components: {
     CodeMirror,
@@ -78,7 +79,15 @@ export default {
     allowEmptyDiffBase: {
       type:    Boolean,
       default: false,
-    }
+    },
+
+    /**
+     * Additional CodeMirror extensions, e.g. fold services. Only read on mount.
+     */
+    extensions: {
+      type:    Array,
+      default: () => [],
+    },
   },
 
   data() {
@@ -109,51 +118,17 @@ export default {
     codeMirrorOptions() {
       const readOnly = this.editorMode === EDITOR_MODES.VIEW_CODE;
 
-      const gutters = [];
-
-      if ( !readOnly ) {
-        gutters.push('CodeMirror-lint-markers');
-      }
-
-      gutters.push('CodeMirror-foldgutter');
-
       return {
         readOnly,
-        gutters,
-        mode:            'yaml',
-        lint:            !readOnly,
-        lineNumbers:     !readOnly,
-        styleActiveLine: false,
-        tabSize:         2,
-        indentWithTabs:  false,
-        cursorBlinkRate: ( readOnly ? -1 : 530 ),
-        extraKeys:       {
-          'Ctrl-Space': 'autocomplete',
-
-          Tab: (cm) => {
-            if (cm.somethingSelected()) {
-              cm.indentSelection('add');
-
-              return;
-            }
-
-            cm.execCommand('insertSoftTab');
-          },
-
-          'Shift-Tab': (cm) => {
-            cm.indentSelection('subtract');
-          }
-        },
+        mode:              'yaml',
+        lint:              !readOnly,
+        lineNumbers:       !readOnly,
         screenReaderLabel: this.t('import.editor.label'),
-        // @TODO find a better way to display the outline
-        // foldOptions: {
-        //   widget: (from, to) => {
-        //     const count = to.line - from.line;
-
-        //     return count ? `\u21A4${ count }\u21A6` : '\u2194';
-        //   }
-        // }
       };
+    },
+
+    codeMirrorExtensions() {
+      return [commentFoldService, ...this.extensions];
     },
 
     isPreview() {
@@ -210,10 +185,6 @@ export default {
       this.$emit('onReady', ...arguments);
     },
 
-    onChanges() {
-      this.$emit('onChanges', ...arguments);
-    },
-
     updateValue(value) {
       this.curValue = value;
       this.$refs.cm?.updateValue(value);
@@ -262,12 +233,12 @@ export default {
       :class="{fill: true, scrolling: scrolling}"
       :value="curValue"
       :options="codeMirrorOptions"
+      :extensions="codeMirrorExtensions"
       :showKeyMapBox="true"
       :data-testid="componentTestid + '-code-mirror'"
       :mode="mode"
       @onInput="onInput"
       @onReady="onReady"
-      @onChanges="onChanges"
       @validationChanged="$emit('validationChanged', $event)"
     />
     <FileDiff
@@ -293,14 +264,6 @@ export default {
 
   .codemirror-container  {
     position: relative;
-    background-color: var(--yaml-editor-bg);
-
-    .CodeMirror {
-      background: none;
-      & .CodeMirror-gutters {
-        background-color: var(--yaml-editor-bg);
-      }
-    }
   }
 
   .diff-mode {
