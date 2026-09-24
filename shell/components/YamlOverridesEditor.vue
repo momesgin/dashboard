@@ -12,7 +12,7 @@ import { countMatches, MIN_SEARCH_LENGTH } from '@shell/utils/yaml-search';
  *  - LEFT "Chart defaults": the full effective document (defaults + overrides).
  *    Lines that differ from the defaults are tinted.
  *  - RIGHT "Your overrides": only the values that differ from the defaults - what
- *    is actually saved (mirrors `helm install --values`). Every line is tinted.
+ *    is actually saved (mirrors `helm install --values`). The whole pane is tinted.
  *
  * Editing either side updates the other: the RIGHT pane is the source of truth
  * (bound to `value` via v-model). Editing the LEFT pane diffs it back against the
@@ -27,7 +27,7 @@ import { countMatches, MIN_SEARCH_LENGTH } from '@shell/utils/yaml-search';
 // keystroke, so the pane being typed in stays responsive on large values files.
 const SYNC_DEBOUNCE_MS = 400;
 
-// Shared line-background class (same light tint for changed/new/override lines).
+// Line-background class for the changed lines. It's the same tint as the overrides pane.
 const OVERRIDE_LINE_CLASS = 'line-override-highlight';
 
 // Delay before the chart-defaults search runs after the last keystroke.
@@ -110,19 +110,6 @@ function applyDefaultsDecorations() {
   defaultsEditor.value?.setLineDecorations(decorations);
 }
 
-/** RIGHT-pane decorations: every non-blank line is an override, so tint them all. */
-function applyOverridesDecorations() {
-  const decorations = (overridesContent.value || '').split('\n').reduce((acc: any[], line, idx) => {
-    if (line.trim()) {
-      acc.push({ line: idx, className: OVERRIDE_LINE_CLASS });
-    }
-
-    return acc;
-  }, []);
-
-  overridesEditor.value?.setLineDecorations(decorations);
-}
-
 // --- Editing the RIGHT (overrides) pane -------------------------------------
 
 function syncFromOverrides() {
@@ -130,7 +117,6 @@ function syncFromOverrides() {
 
   withoutEcho(() => defaultsEditor.value?.updateValue(defaultsContent.value));
   applyDefaultsDecorations();
-  applyOverridesDecorations();
 }
 
 const queueSyncFromOverrides = debounce(syncFromOverrides, SYNC_DEBOUNCE_MS);
@@ -149,7 +135,6 @@ function onOverridesInput(value: string) {
 
 function syncFromDefaults() {
   withoutEcho(() => overridesEditor.value?.updateValue(overridesContent.value));
-  applyOverridesDecorations();
   applyDefaultsDecorations();
 }
 
@@ -276,7 +261,6 @@ watch(() => props.value, (neu) => {
     defaultsEditor.value?.updateValue(defaultsContent.value);
   });
 
-  applyOverridesDecorations();
   applyDefaultsDecorations();
 });
 
@@ -285,17 +269,12 @@ watch(() => props.defaults, () => {
 
   withoutEcho(() => defaultsEditor.value?.updateValue(defaultsContent.value));
   applyDefaultsDecorations();
-  applyOverridesDecorations();
 });
 
 // --- Ready / lifecycle ------------------------------------------------------
 
 function onDefaultsReady() {
   applyDefaultsDecorations();
-}
-
-function onOverridesReady() {
-  applyOverridesDecorations();
 }
 
 onBeforeUnmount(() => {
@@ -318,7 +297,6 @@ function updateOverrides(value: string) {
     defaultsEditor.value?.updateValue(defaultsContent.value);
   });
 
-  applyOverridesDecorations();
   applyDefaultsDecorations();
   emit('update:value', overridesContent.value);
 }
@@ -413,7 +391,7 @@ defineExpose({ updateOverrides });
       />
     </div>
     <div
-      class="values-pane"
+      class="values-pane values-pane--overrides"
       :data-testid="overridesPaneTestid()"
       @focusin="onOverridesFocus"
     >
@@ -434,7 +412,6 @@ defineExpose({ updateOverrides });
         :editor-mode="editorMode"
         :hide-preview-buttons="true"
         @update:value="onOverridesInput"
-        @onReady="onOverridesReady"
       />
     </div>
   </div>
@@ -466,6 +443,12 @@ defineExpose({ updateOverrides });
 
       &__description {
         color: var(--input-label);
+      }
+
+      // Every line here is an override, so the whole editor gets the tint of the
+      // changed lines in the chart defaults pane.
+      &--overrides :deep(.codemirror-container .rc-code-mirror) {
+        --rc-cm-bg: var(--info-banner-bg);
       }
     }
   }

@@ -232,18 +232,22 @@ describe('component: YamlOverridesEditor', () => {
       ]);
     });
 
-    it('highlights every non-blank line in the overrides pane', () => {
+    it('does not tint the lines of the overrides pane', () => {
       const wrapper = mountEditor({ value: 'replicas: 5\nsachet:\n  enabled: false\n' });
       const { right } = editors(wrapper);
       const rightDeco = jest.spyOn(right, 'setLineDecorations');
 
       right.$emit('onReady');
+      right.$emit('update:value', 'replicas: 6\n');
+      jest.runAllTimers();
 
-      expect(rightDeco).toHaveBeenCalledWith([
-        { line: 0, className: 'line-override-highlight' },
-        { line: 1, className: 'line-override-highlight' },
-        { line: 2, className: 'line-override-highlight' },
-      ]);
+      expect(rightDeco).not.toHaveBeenCalled();
+    });
+
+    it('marks the overrides pane, so its whole editor is tinted', () => {
+      const wrapper = mountEditor();
+
+      expect(wrapper.find('[data-testid="values-overrides-pane"]').classes()).toContain('values-pane--overrides');
     });
   });
 
