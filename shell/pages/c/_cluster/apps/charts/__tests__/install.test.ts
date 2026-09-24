@@ -680,6 +680,46 @@ describe('page: Install', () => {
         expect(fileDiff.props('neu').endsWith('broken\n')).toBe(true);
       });
     });
+
+    // The defaults search is sticky, so the boxes around the overrides editor must
+    // not set an overflow (see the `scroll__container--page` styles).
+    describe('scroll container for the sticky defaults search', () => {
+      const mountValuesStep = (data: Record<string, any>) => mountInstall({
+        data: () => ({
+          value:            { metadata: { name: '', namespace: '' } },
+          chart:            {},
+          repo:             { spec: {} },
+          currentCluster:   null,
+          serverUrlSetting: { value: '' },
+          versionInfo:      { values: versionInfoValues },
+          chartValues:      {},
+          ...data,
+        }),
+        stubs: {
+          Wizard:              { template: '<div><slot name="helmValues"/></div>' },
+          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+        },
+      });
+
+      it('lets the page scroll when the overrides editor is shown', () => {
+        const wrapper = mountValuesStep({});
+
+        expect(wrapper.find('.scroll__container').classes()).toContain('scroll__container--page');
+      });
+
+      it.each([
+        ['the diff', { showDiff: true }],
+        ['the questions', { versionInfo: { values: versionInfoValues, questions: { questions: [] } } }],
+        ['a custom values component', { valuesComponent: { template: '<div/>' } }],
+      ])('keeps its own scrolling when %s is shown', (_, data) => {
+        // Start in the form view, like the page does for these charts
+        const wrapper = mountValuesStep({
+          preFormYamlOption: 'FORM', formYamlOption: 'FORM', ...data
+        });
+
+        expect(wrapper.find('.scroll__container').classes()).not.toContain('scroll__container--page');
+      });
+    });
   });
 
   describe('setImagePullSecretData (SUSE App Collection pull secret)', () => {

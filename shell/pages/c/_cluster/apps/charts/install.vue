@@ -664,6 +664,11 @@ export default {
       return EDITOR_MODES.EDIT_CODE;
     },
 
+    /** The values step shows the editable YAML (defaults and overrides panes). */
+    showOverridesEditor() {
+      return !(this.valuesComponent && this.showValuesComponent) && !(this.hasQuestions && this.showQuestions) && !this.showDiff;
+    },
+
     /*
       The "before" side of the Compare Changes diff: defaults + the originally-saved
       overrides (none on a fresh install). Serialized like `diffFinalYaml` so only
@@ -2039,7 +2044,10 @@ export default {
           </div>
         </div>
 
-        <div class="scroll__container">
+        <div
+          class="scroll__container"
+          :class="{ 'scroll__container--page': showOverridesEditor }"
+        >
           <div class="scroll__content">
             <!-- Values (as Custom Component in ./shell/charts/) -->
             <template v-if="valuesComponent && showValuesComponent">
@@ -2450,6 +2458,18 @@ export default {
       // Room for the editor's focus outline so it isn't clipped at the edges.
       padding: 2px;
     }
+
+    // These boxes grow with their content, so the wizard is what scrolls. The
+    // defaults search is sticky, and sticky only works when no box between it
+    // and the wizard sets an overflow.
+    &__container--page, &__container--page &__content {
+      overflow: visible;
+    }
+  }
+
+  // `clip` still clips, but unlike `hidden` it doesn't stop the sticky search.
+  :deep(.step-container__step:has(.scroll__container--page)) {
+    overflow: clip;
   }
 
   :deep() .yaml-editor {
