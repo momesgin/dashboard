@@ -12,10 +12,13 @@ import type { YamlSearchMatches } from '@shell/utils/yaml-search';
 
 /**
  * Two editable YAML panes for chart values:
- *  - LEFT "Chart defaults": the full effective document (defaults + overrides).
+ *  - LEFT "Chart values": the full effective document (defaults + overrides).
  *    Lines that differ from the defaults are tinted.
- *  - RIGHT "Your overrides": only the values that differ from the defaults - what
+ *  - RIGHT "Your values": only the values that differ from the defaults - what
  *    is actually saved (mirrors `helm install --values`). The whole pane is tinted.
+ *
+ * The UI calls both panes "values", but the code keeps the names "defaults" (LEFT)
+ * and "overrides" (RIGHT), as "values" is already used for other data here.
  *
  * Editing either side updates the other: the RIGHT pane is the source of truth
  * (bound to `value` via v-model). Editing the LEFT pane diffs it back against the
