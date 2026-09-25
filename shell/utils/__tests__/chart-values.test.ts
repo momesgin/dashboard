@@ -1,6 +1,7 @@
 import jsyaml from 'js-yaml';
 import {
-  mergeOverrides, mergeOverridesRawText, overridesFromValues, overridesFromEditedValues, sameYamlOverrides, overridesAreMergeable, changedLineNumbers
+  mergeOverrides, mergeOverridesRawText, mergeOverridesValues, overridesFromValues, overridesFromEditedValues, sameYamlOverrides, overridesAreMergeable,
+  changedLineNumbers
 } from '@shell/utils/chart-values';
 
 describe('fx: chart-values', () => {
@@ -189,6 +190,37 @@ describe('fx: chart-values', () => {
     });
   });
 
+  describe('mergeOverridesValues', () => {
+    it('merges the overrides onto the defaults', () => {
+      expect(mergeOverridesValues(defaults, { service: { port: 9090 } })).toStrictEqual({
+        ...defaults,
+        service: { ...defaults.service, port: 9090 },
+      });
+    });
+
+    it('does not change the defaults', () => {
+      const original = JSON.parse(JSON.stringify(defaults));
+
+      mergeOverridesValues(defaults, { service: { port: 9090 } });
+
+      expect(defaults).toStrictEqual(original);
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['null', null],
+      ['a string', 'foo'],
+      ['a number', 42],
+      ['an array', ['a', 'b']],
+    ])('ignores %s (not a mapping)', (_label, overrides) => {
+      expect(mergeOverridesValues(defaults, overrides)).toStrictEqual(defaults);
+    });
+
+    it('treats missing defaults as empty', () => {
+      expect(mergeOverridesValues(null as any, { foo: 'bar' })).toStrictEqual({ foo: 'bar' });
+    });
+  });
+
   describe('sameYamlOverrides', () => {
     it.each([
       ['both empty', '', ''],
@@ -205,6 +237,18 @@ describe('fx: chart-values', () => {
       ['changed value', 'foo: bar\n', 'foo: baz\n'],
     ])('treats %s as a change', (_label, a, b) => {
       expect(sameYamlOverrides(a, b)).toBe(false);
+    });
+
+    it('ignores the key order', () => {
+      expect(sameYamlOverrides('a: 1\nb: 2\n', 'b: 2\na: 1\n')).toStrictEqual(true);
+    });
+
+    it.each([
+      ['the same unparseable text', 'foo: [', 'foo: [', true],
+      ['different unparseable text', 'foo: [', 'foo: [1', false],
+      ['unparseable text vs an empty document', 'foo: [', '', false],
+    ])('compares %s as raw text', (_label, a, b, expected) => {
+      expect(sameYamlOverrides(a, b)).toStrictEqual(expected);
     });
   });
 

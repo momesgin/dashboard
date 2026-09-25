@@ -8,9 +8,6 @@ import { RcCodeMirror } from '@components/RcCodeMirror';
 import type { RcCodeMirrorKeymap, RcCodeMirrorLanguage, RcCodeMirrorVariant } from '@components/RcCodeMirror';
 import { KEYMAP } from '@shell/store/prefs';
 import { _EDIT, _VIEW } from '@shell/config/query-params';
-import { setLineClasses } from '@shell/utils/code-mirror-line-classes';
-import type { LineClass } from '@shell/utils/code-mirror-line-classes';
-import { findYamlSearchMatch, setYamlSearch, yamlSearchMatchIndex } from '@shell/utils/yaml-search';
 
 type CodeMirrorMode = string | { name?: string, json?: boolean } | null;
 
@@ -101,9 +98,7 @@ export default defineComponent({
       hasLintErrors:          false,
       currFocusedElem:        undefined as EventTarget | undefined | null,
       isCodeMirrorFocused:    false,
-      codeMirrorContainerRef: undefined as HTMLElement | undefined,
-      // The query highlighted by `setSearchHighlight`, empty when there is none.
-      searchHighlightQuery:   '',
+      codeMirrorContainerRef: undefined as HTMLElement | undefined
     };
   },
 
@@ -329,57 +324,6 @@ export default defineComponent({
       });
     },
 
-    /** The editor view with CodeMirror's type. It's marked raw, so it isn't a reactive proxy. */
-    editorView(): EditorView | null {
-      return this.view as EditorView | null;
-    },
-
-    /**
-     * Persistently tint lines with a class, on the code and the gutters. Replaces
-     * any previous decorations, so callers pass the full set each time.
-     * `decorations` is `[{ line, className? }]` with 0-based line numbers.
-     */
-    setLineDecorations(decorations: LineClass[] = []) {
-      const view = this.editorView();
-
-      if (view) {
-        setLineClasses(view, decorations);
-      }
-    },
-
-    /**
-     * Highlight the matches of `query` (case-insensitive), with the colours of
-     * CodeMirror's own search. Pass an empty query to clear it. The editor stays
-     * editable.
-     */
-    setSearchHighlight(query = '') {
-      const view = this.editorView();
-
-      if (!view || query === this.searchHighlightQuery) {
-        return;
-      }
-
-      setYamlSearch(view, query);
-      this.searchHighlightQuery = query;
-    },
-
-    /**
-     * Select the first, next or previous match of the search highlight and scroll
-     * it into view. Returns the position of the selected match, from 1, or 0.
-     */
-    findSearchMatch(direction: 'first' | 'next' | 'previous'): number {
-      const view = this.editorView();
-
-      return view && this.searchHighlightQuery ? findYamlSearchMatch(view, direction) : 0;
-    },
-
-    /** The position of the selected search match, from 1, or 0 when it isn't on one. */
-    searchMatchIndex(): number {
-      const view = this.editorView();
-
-      return view && this.searchHighlightQuery ? yamlSearchMatchIndex(view.state) : 0;
-    },
-
     closeKeyMapInfo() {
       this.removeKeyMapBox = true;
     },
@@ -392,7 +336,7 @@ export default defineComponent({
     ref="codeMirrorContainer"
     :tabindex="codeMirrorContainerTabIndex"
     class="code-mirror code-mirror-container"
-    :class="{['read-only']: isReadOnly, ['search-highlighted']: !!searchHighlightQuery}"
+    :class="{['read-only']: isReadOnly}"
     @focusin="focusChanged"
     @blur="focusChanged($event, true)"
   >
@@ -527,18 +471,6 @@ export default defineComponent({
           }
         }
       }
-    }
-
-    // Persistently tint lines that differ from the chart defaults, and every line
-    // in the overrides pane. Set via `setLineDecorations` on the code and the gutters.
-    .cm-line.line-override-highlight,
-    .cm-gutterElement.line-override-highlight {
-      background-color: var(--info-banner-bg);
-    }
-
-    // Search results, set via `setSearchHighlight`
-    &.search-highlighted .codemirror-container .rc-code-mirror {
-      --rc-cm-bg: var(--body-bg);
     }
   }
 </style>

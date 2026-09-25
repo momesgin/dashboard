@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount, nextTick } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import jsyaml from 'js-yaml';
 import debounce from 'lodash/debounce';
 import isPlainObject from 'lodash/isPlainObject';
+import type { EditorView } from '@codemirror/view';
 import YamlEditor, { EDITOR_MODES } from '@shell/components/YamlEditor';
 import { overridesFromEditedValues, mergeOverridesRawText, changedLineNumbers, sameYamlOverrides } from '@shell/utils/chart-values';
-import { countMatches, MIN_SEARCH_LENGTH } from '@shell/utils/yaml-search';
+import { setLineClasses } from '@shell/utils/code-mirror-line-classes';
+import { MIN_SEARCH_LENGTH, findYamlSearchMatch, setYamlSearch, yamlSearchMatches } from '@shell/utils/yaml-search';
+import type { YamlSearchMatches } from '@shell/utils/yaml-search';
 
 /**
  * Two editable YAML panes for chart values:
@@ -18,9 +21,10 @@ import { countMatches, MIN_SEARCH_LENGTH } from '@shell/utils/yaml-search';
  * (bound to `value` via v-model). Editing the LEFT pane diffs it back against the
  * defaults to recompute the overrides. Only the overrides are ever emitted/saved.
  *
- * The cross-pane sync is debounced and kept off the keystroke path (parse + merge
- * + diff is O(document)), and pushed into the *other* editor via its ref -
- * YamlEditor doesn't react to its `value` prop after mount.
+ * Pushing the text into the *other* pane (merge + dump) and re-tinting are
+ * debounced, and done via the editor's ref: YamlEditor doesn't react to its
+ * `value` prop after mount. Search and tint talk to the chart-defaults CodeMirror
+ * view directly.
  */
 
 // Delay before the opposite pane (and the decorations) recompute after the last
@@ -69,11 +73,11 @@ const emit = defineEmits<{(e: 'update:value', value: string): void }>();
 const defaultsEditor = ref<any>(null);
 const overridesEditor = ref<any>(null);
 
-// True while we push content into an editor programmatically, so the resulting
-// update:value echo doesn't loop back through the input handlers.
-const isSyncing = ref(false);
+// The chart-defaults CodeMirror view, once it's ready. Not reactive on purpose.
+let defaultsView: EditorView | null = null;
 
-// The live text of each pane.
+// The live text of each pane. An editor echoes the text we push into it back as
+// update:value, and the input handlers skip it because it equals this text.
 const overridesContent = ref(props.value || '');
 const defaultsContent = ref(mergeOverridesRawText(props.defaults || {}, overridesContent.value));
 
@@ -84,30 +88,21 @@ const overridesTestid = () => `${ props.testidPrefix }-overrides`;
 const searchTestid = () => `${ props.testidPrefix }-defaults-search`;
 
 // The chart-defaults search: what the user typed, the query it ran with (empty
-// until it has MIN_SEARCH_LENGTH characters), how many matches it found and the
-// position of the selected match (0 when the selection isn't on a match).
+// until it has MIN_SEARCH_LENGTH characters), and its matches.
 const searchQuery = ref('');
 const activeSearchQuery = ref('');
-const matchCount = ref(0);
-const currentMatch = ref(0);
-
-/** Run `fn` (a programmatic editor update) without its update:value echo looping back. */
-function withoutEcho(fn: () => void) {
-  isSyncing.value = true;
-  fn();
-  nextTick(() => {
-    isSyncing.value = false;
-  });
-}
+const matches = ref<YamlSearchMatches>({ current: 0, total: 0 });
 
 /** LEFT-pane decorations: tint each leaf line that differs from the defaults. */
 function applyDefaultsDecorations() {
-  const decorations = changedLineNumbers(props.defaults || {}, defaultsContent.value).map((line) => ({
+  if (!defaultsView) {
+    return;
+  }
+
+  setLineClasses(defaultsView, changedLineNumbers(props.defaults || {}, defaultsContent.value).map((line) => ({
     line,
     className: OVERRIDE_LINE_CLASS,
-  }));
-
-  defaultsEditor.value?.setLineDecorations(decorations);
+  })));
 }
 
 // --- Editing the RIGHT (overrides) pane -------------------------------------
@@ -115,14 +110,14 @@ function applyDefaultsDecorations() {
 function syncFromOverrides() {
   defaultsContent.value = mergeOverridesRawText(props.defaults || {}, overridesContent.value);
 
-  withoutEcho(() => defaultsEditor.value?.updateValue(defaultsContent.value));
+  defaultsEditor.value?.updateValue(defaultsContent.value);
   applyDefaultsDecorations();
 }
 
 const queueSyncFromOverrides = debounce(syncFromOverrides, SYNC_DEBOUNCE_MS);
 
 function onOverridesInput(value: string) {
-  if (isSyncing.value) {
+  if (value === overridesContent.value) {
     return;
   }
 
@@ -134,14 +129,14 @@ function onOverridesInput(value: string) {
 // --- Editing the LEFT (chart defaults) pane ---------------------------------
 
 function syncFromDefaults() {
-  withoutEcho(() => overridesEditor.value?.updateValue(overridesContent.value));
+  overridesEditor.value?.updateValue(overridesContent.value);
   applyDefaultsDecorations();
 }
 
 const queueSyncFromDefaults = debounce(syncFromDefaults, SYNC_DEBOUNCE_MS);
 
 function onDefaultsInput(value: string) {
-  if (isSyncing.value) {
+  if (value === defaultsContent.value) {
     return;
   }
 
@@ -190,20 +185,23 @@ function onOverridesFocus() {
 
 // --- Searching the LEFT (chart defaults) pane -------------------------------
 
-// Count the matches and highlight them in the editor. The editor stays editable,
-// and CodeMirror re-highlights the lines the user edits by itself.
+// Highlight and count the matches in the editor. The editor stays editable, and
+// CodeMirror re-highlights the lines the user edits by itself.
 function runSearch() {
   const query = searchQuery.value.trim();
   const active = query.length >= MIN_SEARCH_LENGTH ? query : '';
   const isNewQuery = active !== activeSearchQuery.value;
-  const editor = defaultsEditor.value;
 
   activeSearchQuery.value = active;
-  matchCount.value = countMatches(defaultsContent.value, active);
-  editor?.setSearchHighlight(matchCount.value ? active : '');
+
+  if (!defaultsView) {
+    return;
+  }
+
+  setYamlSearch(defaultsView, active);
 
   // Like a browser, a new query selects its first match. An edit keeps the selection.
-  currentMatch.value = (isNewQuery ? editor?.findSearchMatch('first') : editor?.searchMatchIndex()) || 0;
+  matches.value = isNewQuery ? findYamlSearchMatch(defaultsView, 'first') : yamlSearchMatches(defaultsView.state);
 }
 
 const queueSearch = debounce(runSearch, SEARCH_DEBOUNCE_MS);
@@ -239,8 +237,8 @@ function goToMatch(direction: 'next' | 'previous') {
     return;
   }
 
-  if (matchCount.value) {
-    currentMatch.value = defaultsEditor.value?.findSearchMatch(direction) || 0;
+  if (defaultsView && matches.value.total) {
+    matches.value = findYamlSearchMatch(defaultsView, direction);
   }
 }
 
@@ -249,31 +247,29 @@ function goToMatch(direction: 'next' | 'previous') {
 // React to `value` changing from outside (e.g. the parent seeding the pane). Our
 // own emits are ignored via the content compare so this doesn't loop.
 watch(() => props.value, (neu) => {
-  if (isSyncing.value || sameYamlOverrides(neu || '', overridesContent.value)) {
+  if (sameYamlOverrides(neu || '', overridesContent.value)) {
     return;
   }
 
   overridesContent.value = neu || '';
   defaultsContent.value = mergeOverridesRawText(props.defaults || {}, overridesContent.value);
 
-  withoutEcho(() => {
-    overridesEditor.value?.updateValue(overridesContent.value);
-    defaultsEditor.value?.updateValue(defaultsContent.value);
-  });
-
+  overridesEditor.value?.updateValue(overridesContent.value);
+  defaultsEditor.value?.updateValue(defaultsContent.value);
   applyDefaultsDecorations();
 });
 
 watch(() => props.defaults, () => {
   defaultsContent.value = mergeOverridesRawText(props.defaults || {}, overridesContent.value);
 
-  withoutEcho(() => defaultsEditor.value?.updateValue(defaultsContent.value));
+  defaultsEditor.value?.updateValue(defaultsContent.value);
   applyDefaultsDecorations();
 });
 
 // --- Ready / lifecycle ------------------------------------------------------
 
-function onDefaultsReady() {
+function onDefaultsReady(view: EditorView) {
+  defaultsView = view;
   applyDefaultsDecorations();
 }
 
@@ -281,28 +277,8 @@ onBeforeUnmount(() => {
   queueSyncFromOverrides.cancel();
   queueSyncFromDefaults.cancel();
   queueSearch.cancel();
+  defaultsView = null;
 });
-
-/**
- * Seed the overrides pane from the parent (e.g. after a pull-secret change) and
- * sync the defaults pane to match. Both editors are updated via their refs since
- * YamlEditor doesn't react to its `value` prop after mount.
- */
-function updateOverrides(value: string) {
-  overridesContent.value = value || '';
-  defaultsContent.value = mergeOverridesRawText(props.defaults || {}, overridesContent.value);
-
-  withoutEcho(() => {
-    overridesEditor.value?.updateValue(overridesContent.value);
-    defaultsEditor.value?.updateValue(defaultsContent.value);
-  });
-
-  applyDefaultsDecorations();
-  emit('update:value', overridesContent.value);
-}
-
-// Exposed so the Options-API parent can seed the overrides pane via its ref.
-defineExpose({ updateOverrides });
 </script>
 
 <template>
@@ -338,7 +314,7 @@ defineExpose({ updateOverrides });
           >
           <div class="values-search__addons">
             <button
-              v-if="matchCount"
+              v-if="matches.total"
               type="button"
               class="btn role-link values-search__button"
               :aria-label="t('yamlOverridesEditor.search.next')"
@@ -353,11 +329,11 @@ defineExpose({ updateOverrides });
               aria-live="polite"
               :data-testid="`${ searchTestid() }-count`"
             >
-              <template v-if="currentMatch">{{ t('yamlOverridesEditor.search.position', { current: currentMatch, total: matchCount }) }}</template>
-              <template v-else-if="activeSearchQuery">{{ t('yamlOverridesEditor.search.matches', { count: matchCount }) }}</template>
+              <template v-if="matches.current">{{ t('yamlOverridesEditor.search.position', { current: matches.current, total: matches.total }) }}</template>
+              <template v-else-if="activeSearchQuery">{{ t('yamlOverridesEditor.search.matches', { count: matches.total }) }}</template>
             </span>
             <button
-              v-if="matchCount"
+              v-if="matches.total"
               type="button"
               class="btn role-link values-search__button"
               :aria-label="t('yamlOverridesEditor.search.previous')"
@@ -461,6 +437,12 @@ defineExpose({ updateOverrides });
 
       &__description {
         color: var(--input-label);
+      }
+
+      // The lines that differ from the chart defaults, on the code and the gutter
+      :deep(.cm-line.line-override-highlight),
+      :deep(.cm-gutterElement.line-override-highlight) {
+        background-color: var(--info-banner-bg);
       }
 
       // Every line here is an override, so the whole editor gets the tint of the

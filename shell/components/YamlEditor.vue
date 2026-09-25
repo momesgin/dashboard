@@ -188,22 +188,6 @@ export default {
     updateValue(value) {
       this.curValue = value;
       this.$refs.cm?.updateValue(value);
-    },
-
-    setLineDecorations(decorations) {
-      this.$refs.cm?.setLineDecorations(decorations);
-    },
-
-    setSearchHighlight(query) {
-      this.$refs.cm?.setSearchHighlight(query);
-    },
-
-    findSearchMatch(direction) {
-      return this.$refs.cm?.findSearchMatch(direction) || 0;
-    },
-
-    searchMatchIndex() {
-      return this.$refs.cm?.searchMatchIndex() || 0;
     }
   }
 };

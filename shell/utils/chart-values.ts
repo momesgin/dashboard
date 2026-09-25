@@ -33,9 +33,17 @@ export function overridesFromValues(defaults: object, values: object): string {
  * explicit `key: null` removes a default.
  */
 export function overridesFromEditedValues(defaults: object, values: object): string {
-  const withDefaults = mergeWithReplace(merge({}, defaults || {}), values || {});
+  return overridesFromValues(defaults, mergeOverridesValues(defaults, values));
+}
 
-  return overridesFromValues(defaults, withDefaults);
+/**
+ * Merge the overrides onto a copy of the defaults. Helm values must be a mapping,
+ * and a bare scalar/array/string (e.g. mid-edit "foo") would otherwise be merged
+ * into the defaults character by character, so anything that isn't a plain object
+ * is ignored.
+ */
+export function mergeOverridesValues(defaults: object, overrides: unknown): object {
+  return mergeWithReplace(merge({}, defaults || {}), isPlainObject(overrides) ? overrides : {});
 }
 
 /**
@@ -52,16 +60,7 @@ export function mergeOverrides(defaults: object, overridesYaml: string): string 
     overrides = {};
   }
 
-  // Helm values must be a mapping. A bare scalar/array/string (e.g. mid-edit
-  // "foo") would otherwise be merged into the defaults character-by-character,
-  // so ignore anything that isn't a plain object.
-  if (!isPlainObject(overrides)) {
-    overrides = {};
-  }
-
-  const combined = mergeWithReplace(merge({}, defaults || {}), overrides);
-
-  return saferDump(combined);
+  return saferDump(mergeOverridesValues(defaults, overrides));
 }
 
 /**
@@ -219,17 +218,23 @@ export function changedLineNumbers(defaults: object, mergedYaml: string): number
  * Compare two override YAML strings by their parsed content rather than raw
  * text. Typing then deleting in the editor can leave residual whitespace (e.g.
  * a trailing newline) that makes the strings differ even though there are no
- * real changes. Empty/whitespace-only or unparseable input is treated as an
- * empty document.
+ * real changes. Empty/whitespace-only input is an empty document, and key order
+ * doesn't matter. Unparseable input is compared as raw text.
  */
 export function sameYamlOverrides(a: string, b: string): boolean {
   const parse = (yaml: string) => {
     try {
-      return JSON.stringify(jsyaml.load(yaml || '') || {});
+      return jsyaml.load(yaml || '') || {};
     } catch (e) {
-      return yaml;
+      return undefined;
     }
   };
+  const parsedA = parse(a);
+  const parsedB = parse(b);
 
-  return parse(a) === parse(b);
+  if (parsedA === undefined || parsedB === undefined) {
+    return a === b;
+  }
+
+  return isEqual(parsedA, parsedB);
 }

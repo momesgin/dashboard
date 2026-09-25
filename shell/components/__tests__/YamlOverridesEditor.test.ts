@@ -1,27 +1,51 @@
+import { defineComponent, markRaw } from 'vue';
 import { shallowMount } from '@vue/test-utils';
+import { EditorView } from '@codemirror/view';
+import { getSearchQuery } from '@codemirror/search';
 import YamlOverridesEditor from '@shell/components/YamlOverridesEditor.vue';
 import { mergeOverridesRawText, overridesFromValues } from '@shell/utils/chart-values';
 
 describe('component: YamlOverridesEditor', () => {
-  // Stub YamlEditor with the ref methods the component drives (YamlEditor does not
-  // react to its `value` prop, so cross-pane updates are pushed in via the ref).
-  const YamlEditorStub = {
-    name:     'YamlEditor',
-    template: '<div class="yaml-editor-stub" />',
-    props:    ['value', 'componentTestid', 'editorMode'],
-    methods:  {
-      updateValue() {},
-      setLineDecorations() {},
-      setSearchHighlight() {},
-      findSearchMatch() {
-        return 0;
-      },
-      searchMatchIndex() {
-        return 0;
-      },
-      refresh() {},
+  // Stub YamlEditor with a real CodeMirror view, so the search and the tint run for
+  // real. Like YamlEditor, it doesn't react to its `value` prop after mount: text is
+  // pushed in with `updateValue`, and every change is emitted as update:value. The
+  // view isn't attached to the page, since jsdom can't measure it.
+  const YamlEditorStub = defineComponent({
+    name:  'YamlEditor',
+    props: {
+      value: String, componentTestid: String, editorMode: String
     },
-  };
+    emits:    ['update:value', 'onReady'],
+    data:     () => ({ view: null as EditorView | null }),
+    template: '<div class="yaml-editor-stub" />',
+    mounted() {
+      this.view = markRaw(new EditorView({
+        doc:        this.value || '',
+        extensions: [EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            this.$emit('update:value', update.state.doc.toString());
+          }
+        })],
+      }));
+      this.$emit('onReady', this.view);
+    },
+    beforeUnmount() {
+      this.view?.destroy();
+    },
+    methods: {
+      updateValue(value: string) {
+        const view = this.view as EditorView;
+
+        if (view.state.doc.toString() !== value) {
+          view.dispatch({
+            changes: {
+              from: 0, to: view.state.doc.length, insert: value
+            }
+          });
+        }
+      },
+    },
+  });
 
   const defaults = { replicas: 2, sachet: { enabled: true } };
 
@@ -42,9 +66,28 @@ describe('component: YamlOverridesEditor', () => {
     right: wrapper.findComponent({ ref: 'overridesEditor' }).vm,
   });
 
+  // The text of an editor, and the text of its lines or marks with a class
+  const docOf = (editor: any): string => editor.view.state.doc.toString();
+  const textsOf = (editor: any, selector: string) => Array.from(editor.view.contentDOM.querySelectorAll(selector)).map((el: any) => el.textContent);
+  const tintedLines = (editor: any) => textsOf(editor, '.cm-line.line-override-highlight');
+  const searchMarks = (editor: any) => textsOf(editor, '.cm-searchMatch');
+  const selectedText = (editor: any) => {
+    const { from, to } = editor.view.state.selection.main;
+
+    return editor.view.state.sliceDoc(from, to);
+  };
+
+  // Let the watchers run, then the debounced syncs and search
+  const settle = async(wrapper: any) => {
+    await wrapper.vm.$nextTick();
+    jest.runAllTimers();
+    await wrapper.vm.$nextTick();
+  };
+
   beforeEach(() => {
-    // The cross-pane sync is debounced, so drive it with fake timers.
-    jest.useFakeTimers();
+    // The cross-pane sync is debounced, so drive it with fake timers. Animation
+    // frames stay real, so CodeMirror doesn't measure its layout, which jsdom can't do.
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
   });
 
   afterEach(() => {
@@ -112,6 +155,17 @@ describe('component: YamlOverridesEditor', () => {
       expect(leftUpdate).toHaveBeenCalledTimes(1);
       expect(leftUpdate).toHaveBeenCalledWith(mergeOverridesRawText(defaults, 'replicas: 8\n'));
     });
+
+    it('does not take the text pushed into the chart-defaults editor as an edit', async() => {
+      const wrapper = mountEditor();
+      const { left, right } = editors(wrapper);
+
+      right.$emit('update:value', 'replicas: 9\n');
+      await settle(wrapper);
+
+      expect(docOf(left)).toStrictEqual(mergeOverridesRawText(defaults, 'replicas: 9\n'));
+      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 9\n']]);
+    });
   });
 
   describe('editing the chart-defaults (left) pane', () => {
@@ -140,6 +194,17 @@ describe('component: YamlOverridesEditor', () => {
       const expected = overridesFromValues(defaults, { replicas: 5, sachet: { enabled: true } });
 
       expect(rightUpdate).toHaveBeenCalledWith(expected);
+    });
+
+    it('does not take the text pushed into the overrides editor as an edit', async() => {
+      const wrapper = mountEditor({ value: '' });
+      const { left, right } = editors(wrapper);
+
+      left.$emit('update:value', 'replicas: 5\nsachet:\n  enabled: true\n');
+      await settle(wrapper);
+
+      expect(docOf(right)).toStrictEqual('replicas: 5\n');
+      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 5\n']]);
     });
 
     it('does not save a deleted default key as null', () => {
@@ -208,40 +273,36 @@ describe('component: YamlOverridesEditor', () => {
   });
 
   describe('line decorations', () => {
-    it('tints a changed default line, without a label', () => {
+    it('tints a changed default line', () => {
       const wrapper = mountEditor({ value: 'replicas: 5\n' });
-      const { left } = editors(wrapper);
-      const leftDeco = jest.spyOn(left, 'setLineDecorations');
 
-      left.$emit('onReady');
-
-      expect(leftDeco).toHaveBeenCalledWith([
-        { line: 0, className: 'line-override-highlight' },
-      ]);
+      expect(tintedLines(editors(wrapper).left)).toStrictEqual(['replicas: 5']);
     });
 
     it('tints a key that is not in the defaults', () => {
       const wrapper = mountEditor({ defaults: {}, value: 'foo: bar\n' });
-      const { left } = editors(wrapper);
-      const leftDeco = jest.spyOn(left, 'setLineDecorations');
 
-      left.$emit('onReady');
-
-      expect(leftDeco).toHaveBeenCalledWith([
-        { line: 0, className: 'line-override-highlight' },
-      ]);
+      expect(tintedLines(editors(wrapper).left)).toStrictEqual(['foo: bar']);
     });
 
-    it('does not tint the lines of the overrides pane', () => {
+    it('tints the lines again after an overrides edit', async() => {
+      const wrapper = mountEditor();
+      const { left, right } = editors(wrapper);
+
+      right.$emit('update:value', 'sachet:\n  enabled: false\n');
+      await settle(wrapper);
+
+      expect(tintedLines(left)).toStrictEqual(['  enabled: false']);
+    });
+
+    it('does not tint the lines of the overrides pane', async() => {
       const wrapper = mountEditor({ value: 'replicas: 5\nsachet:\n  enabled: false\n' });
       const { right } = editors(wrapper);
-      const rightDeco = jest.spyOn(right, 'setLineDecorations');
 
-      right.$emit('onReady');
       right.$emit('update:value', 'replicas: 6\n');
-      jest.runAllTimers();
+      await settle(wrapper);
 
-      expect(rightDeco).not.toHaveBeenCalled();
+      expect(tintedLines(right)).toStrictEqual([]);
     });
 
     it('marks the overrides pane, so its whole editor is tinted', () => {
@@ -262,6 +323,15 @@ describe('component: YamlOverridesEditor', () => {
 
       expect(rightUpdate).toHaveBeenCalledWith('replicas: 7\n');
       expect(leftUpdate).toHaveBeenCalledWith(mergeOverridesRawText(defaults, 'replicas: 7\n'));
+    });
+
+    it('does not emit the value it was given back to the parent', async() => {
+      const wrapper = mountEditor({ value: 'replicas: 5\n' });
+
+      await wrapper.setProps({ value: 'replicas: 7\n' });
+      await settle(wrapper);
+
+      expect(wrapper.emitted('update:value')).toBeUndefined();
     });
 
     it('ignores a value prop change that matches the current overrides', async() => {
@@ -292,57 +362,55 @@ describe('component: YamlOverridesEditor', () => {
       await wrapper.vm.$nextTick();
     };
 
+    // A document with three matches of "replicas"
+    const THREE_MATCHES = 'replicas: 5\nreplicasA: 1\nreplicasB: 1\n';
+    const queryOf = (editor: any) => getSearchQuery(editor.view.state).search;
+
     it('does not search before the third character', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, 'en');
 
-      expect(leftSearch).not.toHaveBeenCalledWith('en');
+      expect(queryOf(editors(wrapper).left)).toStrictEqual('');
       expect(countLabel(wrapper).text()).toStrictEqual('');
     });
 
     it('waits for the user to stop typing before searching', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
+      const { left } = editors(wrapper);
 
       await searchInput(wrapper).setValue('ena');
       await searchInput(wrapper).setValue('enab');
 
-      expect(leftSearch).not.toHaveBeenCalledWith('ena');
-      expect(leftSearch).not.toHaveBeenCalledWith('enab');
+      expect(queryOf(left)).toStrictEqual('');
 
       jest.runAllTimers();
 
-      expect(leftSearch).toHaveBeenCalledTimes(1);
-      expect(leftSearch).toHaveBeenCalledWith('enab');
+      expect(queryOf(left)).toStrictEqual('enab');
     });
 
-    it('highlights the query in the chart-defaults editor and shows the match count', async() => {
+    it('highlights the matches in the chart-defaults editor, ignoring case', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, 'ENAbled');
 
-      expect(leftSearch).toHaveBeenCalledWith('ENAbled');
-      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.matches {"count":1}');
+      expect(searchMarks(editors(wrapper).left)).toStrictEqual(['enabled']);
     });
 
     it('counts every match', async() => {
-      const wrapper = mountEditor({ value: 'replicas: 5\nreplicasExtra: 1\n' });
+      const wrapper = mountEditor({ value: THREE_MATCHES });
 
       await search(wrapper, 'replicas');
 
-      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.matches {"count":2}');
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":1,"total":3}');
     });
 
     it('ignores spaces around the query', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, '  sachet  ');
 
-      expect(leftSearch).toHaveBeenCalledWith('sachet');
+      expect(queryOf(editors(wrapper).left)).toStrictEqual('sachet');
     });
 
     it('shows the search icon and no clear button before anything is typed', () => {
@@ -397,148 +465,119 @@ describe('component: YamlOverridesEditor', () => {
     });
 
     it('selects the first match of a new query', async() => {
-      const wrapper = mountEditor();
-      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+      const wrapper = mountEditor({ value: THREE_MATCHES });
+      const { left } = editors(wrapper);
 
-      await search(wrapper, 'sachet');
+      await search(wrapper, 'replicas');
 
-      expect(leftFind).toHaveBeenCalledWith('first');
+      expect(left.view.state.selection.main.from).toStrictEqual(0);
+      expect(selectedText(left)).toStrictEqual('replicas');
     });
 
     it('shows the position of the selected match', async() => {
       const wrapper = mountEditor();
 
-      jest.spyOn(editors(wrapper).left, 'findSearchMatch').mockReturnValue(1);
       await search(wrapper, 'sachet');
 
       expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":1,"total":1}');
     });
 
     it.each([
-      ['next', nextButton],
-      ['previous', previousButton],
-    ])('selects the %p match when its button is clicked', async(direction, button) => {
-      const wrapper = mountEditor({ value: 'replicas: 5\nreplicasExtra: 1\n' });
-      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+      ['next', nextButton, 2],
+      ['previous', previousButton, 3],
+    ])('selects the %p match when its button is clicked', async(_, button, current) => {
+      const wrapper = mountEditor({ value: THREE_MATCHES });
 
       await search(wrapper, 'replicas');
-      leftFind.mockReturnValue(2);
       await button(wrapper).trigger('click');
 
-      expect(leftFind).toHaveBeenLastCalledWith(direction);
-      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":2}');
+      expect(countLabel(wrapper).text()).toStrictEqual(`yamlOverridesEditor.search.position {"current":${ current },"total":3}`);
     });
 
     it.each([
-      ['next', {}],
-      ['previous', { shiftKey: true }],
-    ])('selects the %p match when Enter is pressed with %p', async(direction, modifiers) => {
-      const wrapper = mountEditor();
-      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+      ['next', {}, 2],
+      ['previous', { shiftKey: true }, 3],
+    ])('selects the %p match when Enter is pressed with %p', async(_, modifiers, current) => {
+      const wrapper = mountEditor({ value: THREE_MATCHES });
 
-      await search(wrapper, 'sachet');
+      await search(wrapper, 'replicas');
       await searchInput(wrapper).trigger('keydown', { key: 'Enter', ...modifiers });
 
-      expect(leftFind).toHaveBeenLastCalledWith(direction);
+      expect(countLabel(wrapper).text()).toStrictEqual(`yamlOverridesEditor.search.position {"current":${ current },"total":3}`);
     });
 
     it('runs a waiting search on Enter instead of moving past its first match', async() => {
-      const wrapper = mountEditor();
-      const leftFind = jest.spyOn(editors(wrapper).left, 'findSearchMatch');
+      const wrapper = mountEditor({ value: THREE_MATCHES });
 
-      await searchInput(wrapper).setValue('sachet');
+      await searchInput(wrapper).setValue('replicas');
       await searchInput(wrapper).trigger('keydown', { key: 'Enter' });
 
-      expect(leftFind.mock.calls).toStrictEqual([['first']]);
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":1,"total":3}');
     });
 
-    it('keeps the selection when the chart-defaults document changes', async() => {
-      const wrapper = mountEditor();
-      const { left, right } = editors(wrapper);
-      const leftFind = jest.spyOn(left, 'findSearchMatch');
+    it('keeps the selection when the chart-defaults document is edited', async() => {
+      const wrapper = mountEditor({ value: THREE_MATCHES });
+      const { left } = editors(wrapper);
 
-      await search(wrapper, 'sachet');
-      jest.spyOn(left, 'searchMatchIndex').mockReturnValue(2);
-      right.$emit('update:value', 'replicas: 5\nsachetExtra: 1\n');
-      jest.runAllTimers();
-      await wrapper.vm.$nextTick();
-      jest.runAllTimers();
-      await wrapper.vm.$nextTick();
+      await search(wrapper, 'replicas');
+      await nextButton(wrapper).trigger('click');
+      left.view.dispatch({ changes: { from: left.view.state.doc.length, insert: 'other: replicas\n' } });
+      await settle(wrapper);
 
-      expect(leftFind.mock.calls).toStrictEqual([['first']]);
-      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":2}');
+      expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":4}');
     });
 
     it('shows no matches and no highlight when nothing matches', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, 'nothing-here');
 
-      expect(leftSearch).toHaveBeenLastCalledWith('');
+      expect(searchMarks(editors(wrapper).left)).toStrictEqual([]);
       expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.matches {"count":0}');
     });
 
     it('clears the search when the clear button is clicked', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
+      const { left } = editors(wrapper);
 
       await search(wrapper, 'sachet');
       await clearButton(wrapper).trigger('click');
 
       expect((searchInput(wrapper).element as HTMLInputElement).value).toStrictEqual('');
-      expect(leftSearch).toHaveBeenLastCalledWith('');
+      expect(searchMarks(left)).toStrictEqual([]);
       expect(countLabel(wrapper).text()).toStrictEqual('');
     });
 
     it('clears the search when Escape is pressed', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, 'sachet');
       await searchInput(wrapper).trigger('keydown', { key: 'Escape' });
 
       expect((searchInput(wrapper).element as HTMLInputElement).value).toStrictEqual('');
-      expect(leftSearch).toHaveBeenLastCalledWith('');
+      expect(searchMarks(editors(wrapper).left)).toStrictEqual([]);
     });
 
     it('clears the highlight right away when the query gets too short', async() => {
       const wrapper = mountEditor();
-      const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
       await search(wrapper, 'sachet');
       await searchInput(wrapper).setValue('sa');
 
-      expect(leftSearch).toHaveBeenLastCalledWith('');
+      expect(searchMarks(editors(wrapper).left)).toStrictEqual([]);
     });
 
     it('recounts the matches when the chart-defaults document changes', async() => {
       const wrapper = mountEditor();
+      const { left, right } = editors(wrapper);
 
       await search(wrapper, 'sachet');
-      editors(wrapper).right.$emit('update:value', 'replicas: 5\nsachetExtra: 1\n');
-      jest.runAllTimers();
-      await wrapper.vm.$nextTick();
-      jest.runAllTimers();
-      await wrapper.vm.$nextTick();
+      right.$emit('update:value', 'replicas: 5\nsachetExtra: 1\n');
+      await settle(wrapper);
+      await settle(wrapper);
 
+      expect(searchMarks(left)).toStrictEqual(['sachet', 'sachet']);
       expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.matches {"count":2}');
-    });
-  });
-
-  describe('updateOverrides', () => {
-    it('seeds both editors and emits the new overrides', async() => {
-      const wrapper = mountEditor({ value: '' });
-      const { left, right } = editors(wrapper);
-      const leftUpdate = jest.spyOn(left, 'updateValue');
-      const rightUpdate = jest.spyOn(right, 'updateValue');
-
-      (wrapper.vm as any).updateOverrides('replicas: 3\n');
-      await wrapper.vm.$nextTick();
-
-      expect(rightUpdate).toHaveBeenCalledWith('replicas: 3\n');
-      expect(leftUpdate).toHaveBeenCalledWith(mergeOverridesRawText(defaults, 'replicas: 3\n'));
-      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 3\n']]);
     });
   });
 });

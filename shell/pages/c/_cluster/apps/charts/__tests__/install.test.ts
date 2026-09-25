@@ -361,6 +361,7 @@ describe('page: Install', () => {
     });
 
     it('feeds the chart defaults to the overrides editor so it can compute the final values preview', async() => {
+      const YamlOverridesEditorStub = { template: '<div/>', props: ['defaults'] };
       const wrapper = mountInstall({
         data: () => ({
           value:            { metadata: { name: '', namespace: '' } },
@@ -374,9 +375,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: {
-            template: '<div/>', props: ['defaults'], methods: { updateOverrides() {} }
-          },
+          YamlOverridesEditor: YamlOverridesEditorStub,
         },
       });
 
@@ -385,7 +384,7 @@ describe('page: Install', () => {
 
       // The preview (defaults merged with overrides) is now computed inside
       // YamlOverridesEditor's smart mode - install.vue just supplies the defaults.
-      expect(wrapper.findComponent({ ref: 'valuesEditor' }).props('defaults')).toStrictEqual(versionInfoValues);
+      expect(wrapper.findComponent(YamlOverridesEditorStub).props('defaults')).toStrictEqual(versionInfoValues);
     });
 
     it('preserves an explicit null the user deliberately sets in their overrides', () => {
@@ -434,7 +433,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
         },
       });
 
@@ -475,7 +474,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
         },
       });
 
@@ -510,7 +509,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
         },
       });
 
@@ -552,7 +551,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
         },
       });
 
@@ -613,7 +612,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
           YamlEditor:          false,
           FileDiff:            FileDiffStub,
         },
@@ -697,7 +696,7 @@ describe('page: Install', () => {
         }),
         stubs: {
           Wizard:              { template: '<div><slot name="helmValues"/></div>' },
-          YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } },
+          YamlOverridesEditor: { template: '<div/>' },
         },
       });
 
@@ -743,7 +742,7 @@ describe('page: Install', () => {
         selectedImagePullSecret: 'my-pull-secret',
         ...data,
       }),
-      stubs: { YamlOverridesEditor: { template: '<div/>', methods: { updateOverrides() {} } } },
+      stubs: { YamlOverridesEditor: { template: '<div/>' } },
     });
 
     it('seeds the overrides pane with only the pull-secret override, not the whole values document', async() => {
@@ -760,15 +759,6 @@ describe('page: Install', () => {
       // regression guard: the chart defaults must not be dumped into the overrides pane
       expect(wrapper.vm.valuesYaml).not.toContain('repository');
       expect(wrapper.vm.valuesYaml).not.toContain('targetPort');
-    });
-
-    it('pushes the seeded overrides into the editor, which does not react to its value prop after mount', async() => {
-      const wrapper = mountAppCo();
-      const updateValue = jest.spyOn(wrapper.vm as any, 'updateValue');
-
-      await wrapper.vm.setImagePullSecretData();
-
-      expect(updateValue).toHaveBeenCalledWith(wrapper.vm.valuesYaml);
     });
 
     it('leaves the overrides pane untouched when the pull-secret selection is not yet resolved', async() => {

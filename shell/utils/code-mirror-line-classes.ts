@@ -9,16 +9,14 @@ import type { Range, Text } from '@codemirror/state';
 import { Decoration, EditorView, GutterMarker, gutterLineClass } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
 
-export const DEFAULT_LINE_CLASS = 'line-override-highlight';
-
 /** A 0-based line number and the class to put on it. */
 export interface LineClass {
   line: number;
-  className?: string;
+  className: string;
 }
 
 /** Puts `elementClass` on the gutter elements of a line. */
-export class LineClassMarker extends GutterMarker {
+class LineClassMarker extends GutterMarker {
   constructor(readonly elementClass: string) {
     super();
   }
@@ -39,9 +37,8 @@ function buildLineClasses(doc: Text, lineClasses: LineClass[]): LineClassState {
   const lines: Range<Decoration>[] = [];
   const gutters: Range<GutterMarker>[] = [];
 
-  lineClasses.filter((l) => l.line >= 0 && l.line < doc.lines).forEach((l) => {
-    const className = l.className || DEFAULT_LINE_CLASS;
-    const from = doc.line(l.line + 1).from;
+  lineClasses.filter((l) => l.line >= 0 && l.line < doc.lines).forEach(({ line, className }) => {
+    const from = doc.line(line + 1).from;
 
     lines.push(Decoration.line({ class: className }).range(from));
     gutters.push(new LineClassMarker(className).range(from));

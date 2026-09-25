@@ -39,7 +39,9 @@ import {
 } from '@shell/utils/object';
 import { ignoreVariables } from './install.helpers';
 import { findBy, insertAt } from '@shell/utils/array';
-import { mergeOverrides, mergeOverridesRawText, overridesFromValues, sameYamlOverrides } from '@shell/utils/chart-values';
+import {
+  mergeOverrides, mergeOverridesRawText, mergeOverridesValues, overridesFromValues, sameYamlOverrides
+} from '@shell/utils/chart-values';
 import { addParam } from '@shell/utils/url';
 import { WINDOWS } from '@shell/store/catalog';
 import { SETTING } from '@shell/config/settings';
@@ -356,14 +358,14 @@ export default {
       }
 
       /*
-        The editable YAML pane shows ONLY the user's overrides - the values that
+        The overrides YAML pane shows ONLY the user's overrides - the values that
         differ from the chart defaults - mirroring `helm install --values`. The
-        full chart defaults are shown read-only in the "Final values preview"
-        pane. On a fresh install this is empty; on edit it is the
-        previously-saved overrides. Keeping the editor to overrides only is what
-        stops removed keys from being sent to Helm as `null`.
+        chart defaults pane next to it shows the defaults merged with them. On a
+        fresh install this is empty; on edit it is the previously-saved
+        overrides. Saving overrides only is what stops removed keys from being
+        sent to Helm as `null`.
       */
-      this.valuesYaml = overridesFromValues(this.versionInfo?.values || {}, this.chartValues);
+      this.valuesYaml = overridesFromValues(this.chartDefaults, this.chartValues);
 
       /* For YAML diff */
       if ( !this.loadedVersion ) {
@@ -526,6 +528,11 @@ export default {
       return null;
     },
 
+    /** The chart's default values. A stable object, so the values editor doesn't re-merge on every render. */
+    chartDefaults() {
+      return this.versionInfo?.values || {};
+    },
+
     /**
      * Return list of variables to filter chart questions
      */
@@ -675,7 +682,7 @@ export default {
       real changes show.
     */
     originalYamlFull() {
-      return mergeOverrides(this.versionInfo?.values || {}, this.originalYamlValues || '');
+      return mergeOverrides(this.chartDefaults, this.originalYamlValues || '');
     },
 
     /*
@@ -684,7 +691,7 @@ export default {
       the whole document instead of hiding them or collapsing to defaults.
     */
     diffFinalYaml() {
-      return mergeOverridesRawText(this.versionInfo?.values || {}, this.valuesYaml);
+      return mergeOverridesRawText(this.chartDefaults, this.valuesYaml);
     },
 
     /*
@@ -733,7 +740,7 @@ export default {
         value:    VALUES_STATE.DIFF,
         // The editable pane holds overrides only, so compare against the overrides (diff), not the full merged chartValues.
         // Compare parsed content so editor whitespace (e.g. a leftover newline after typing then deleting) doesn't count as a change.
-        disabled: this.formYamlOption === VALUES_STATE.FORM ? sameYamlOverrides(this.originalYamlValues, overridesFromValues(this.versionInfo?.values || {}, this.chartValues || {})) : sameYamlOverrides(this.originalYamlValues, this.valuesYaml),
+        disabled: this.formYamlOption === VALUES_STATE.FORM ? sameYamlOverrides(this.originalYamlValues, overridesFromValues(this.chartDefaults, this.chartValues || {})) : sameYamlOverrides(this.originalYamlValues, this.valuesYaml),
       });
 
       return options;
@@ -934,7 +941,7 @@ export default {
         // Show the YAML preview. The editable pane holds overrides only, so seed
         // it with the diff between the chart defaults and the form's values.
         if (old === VALUES_STATE.FORM) {
-          this.valuesYaml = overridesFromValues(this.versionInfo?.values || {}, this.chartValues || {});
+          this.valuesYaml = overridesFromValues(this.chartDefaults, this.chartValues || {});
           this.previousYamlValues = this.valuesYaml;
         }
 
@@ -947,14 +954,13 @@ export default {
         // Show the YAML diff. The editable pane holds overrides only, so seed it
         // with the diff between the chart defaults and the form's values.
         if (old === VALUES_STATE.FORM) {
-          this.valuesYaml = overridesFromValues(this.versionInfo?.values || {}, this.chartValues || {});
+          this.valuesYaml = overridesFromValues(this.chartDefaults, this.chartValues || {});
           this.previousYamlValues = this.valuesYaml;
         }
 
         this.showValuesComponent = false;
         this.showQuestions = false;
 
-        this.updateValue(this.valuesYaml);
         this.showDiff = true;
         break;
       }
@@ -1147,11 +1153,9 @@ export default {
           }
         }
 
-        // Reflect the pull-secret change in the editable pane, which holds
-        // overrides only (the diff from the chart defaults). Push the value in
-        // explicitly - the editor doesn't react to its value prop after mount.
-        this.valuesYaml = overridesFromValues(this.versionInfo?.values || {}, this.chartValues);
-        this.updateValue(this.valuesYaml);
+        // Reflect the pull-secret change in the values editor, which holds
+        // overrides only (the diff from the chart defaults).
+        this.valuesYaml = overridesFromValues(this.chartDefaults, this.chartValues);
       }
     },
 
@@ -1165,10 +1169,6 @@ export default {
       });
 
       return globalRegistry.value;
-    },
-
-    updateValue(value) {
-      this.$refs.valuesEditor?.updateOverrides(value);
     },
 
     async loadValuesComponent() {
@@ -1436,12 +1436,7 @@ export default {
           defaults, so only the overrides are sent (and never `null`s for keys
           the user removed), matching `helm install --values`.
         */
-        const overrides = jsyaml.load(this.valuesYaml) || {};
-
-        this.chartValues = mergeWithReplace(
-          merge({}, this.versionInfo?.values || {}),
-          overrides,
-        );
+        this.chartValues = mergeOverridesValues(this.chartDefaults, jsyaml.load(this.valuesYaml));
       } catch (err) {
         return { errors: exceptionToErrorsArray(err) };
       }
@@ -2106,10 +2101,9 @@ export default {
             <!-- Values (as YAML): editable chart defaults (left) + editable overrides (right) -->
             <template v-else>
               <YamlOverridesEditor
-                ref="valuesEditor"
                 v-model:value="valuesYaml"
                 class="step__values__content"
-                :defaults="versionInfo?.values || {}"
+                :defaults="chartDefaults"
                 :editor-mode="editorMode"
                 :chart-defaults-label="t('catalog.install.section.chartDefaults.label')"
                 :chart-defaults-hint="t('catalog.install.section.chartDefaults.hint')"
@@ -2453,8 +2447,6 @@ export default {
       display: flex;
       flex: 1;
       overflow: auto;
-      // Reserve the scrollbar space so focusing an editor doesn't shift the panes.
-      scrollbar-gutter: stable;
       // Room for the editor's focus outline so it isn't clipped at the edges.
       padding: 2px;
     }

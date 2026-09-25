@@ -14,29 +14,14 @@ import {
 /** The search only runs once the query has at least this many characters. */
 export const MIN_SEARCH_LENGTH = 3;
 
-/**
- * Count the case-insensitive, non-overlapping occurrences of `query` in `text`.
- * A single pass with `indexOf`, so it stays fast on very large documents.
- */
-export function countMatches(text: string, query: string): number {
-  if (!text || !query) {
-    return 0;
-  }
-
-  const haystack = text.toLowerCase();
-  const needle = query.toLowerCase();
-  let count = 0;
-  let from = haystack.indexOf(needle);
-
-  while (from !== -1) {
-    count++;
-    from = haystack.indexOf(needle, from + needle.length);
-  }
-
-  return count;
+/** How many matches the query has, and the position of the selected one. */
+export interface YamlSearchMatches {
+  /** The position of the selected match, from 1, or 0 when the selection isn't on a match. */
+  current: number;
+  total: number;
 }
 
-// --- CodeMirror 6 -----------------------------------------------------------
+const NO_MATCHES: YamlSearchMatches = { current: 0, total: 0 };
 
 const matchMark = Decoration.mark({ class: 'cm-searchMatch' });
 const selectedMatchMark = Decoration.mark({ class: 'cm-searchMatch cm-searchMatch-selected' });
@@ -95,56 +80,57 @@ const yamlSearchExtension: Extension = [
  * extension is only added to an editor the first time it's used.
  */
 export function setYamlSearch(view: EditorView, query = '') {
+  const next = new SearchQuery({ search: query, literal: true });
+
   if (!view.plugin(searchMatchHighlight)) {
     view.dispatch({ effects: StateEffect.appendConfig.of(yamlSearchExtension) });
   }
 
-  view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query, literal: true })) });
+  if (!getSearchQuery(view.state).eq(next)) {
+    view.dispatch({ effects: setSearchQuery.of(next) });
+  }
 }
 
-/**
- * The position of the selected match, from 1, or 0 when the selection isn't on a
- * match.
- */
-export function yamlSearchMatchIndex(state: EditorState): number {
+/** Count the matches of the query set by `setYamlSearch` and find the selected one. */
+export function yamlSearchMatches(state: EditorState): YamlSearchMatches {
   const query = getSearchQuery(state);
-  const { from, to } = state.selection.main;
 
-  if (!query.valid || from === to) {
-    return 0;
+  if (!query.valid) {
+    return NO_MATCHES;
   }
 
+  const { from, to } = state.selection.main;
   const cursor = query.getCursor(state);
-  let index = 0;
+  let current = 0;
+  let total = 0;
 
-  for (let match = cursor.next(); !match.done && match.value.from <= from; match = cursor.next()) {
-    index++;
+  for (let match = cursor.next(); !match.done; match = cursor.next()) {
+    total++;
 
     if (match.value.from === from && match.value.to === to) {
-      return index;
+      current = total;
     }
   }
 
-  return 0;
+  return { current, total };
 }
 
 /**
  * Select the first, next or previous match of the query set by `setYamlSearch`
  * and scroll it into view. Next and previous wrap around, like a browser.
- * Returns the position of the selected match, from 1, or 0 when there is none.
  */
-export function findYamlSearchMatch(view: EditorView, direction: 'first' | 'next' | 'previous'): number {
+export function findYamlSearchMatch(view: EditorView, direction: 'first' | 'next' | 'previous'): YamlSearchMatches {
   const query = getSearchQuery(view.state);
 
   if (!query.valid) {
-    return 0;
+    return NO_MATCHES;
   }
 
   if (direction === 'first') {
     const first = query.getCursor(view.state).next();
 
     if (first.done) {
-      return 0;
+      return NO_MATCHES;
     }
 
     const { from, to } = first.value;
@@ -160,5 +146,5 @@ export function findYamlSearchMatch(view: EditorView, direction: 'first' | 'next
     findPrevious(view);
   }
 
-  return yamlSearchMatchIndex(view.state);
+  return yamlSearchMatches(view.state);
 }
