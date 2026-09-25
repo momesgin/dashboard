@@ -680,9 +680,9 @@ describe('page: Install', () => {
       });
     });
 
-    // The defaults search is sticky, so the boxes around the overrides editor must
-    // not set an overflow (see the `scroll__container--page` styles).
-    describe('scroll container for the sticky defaults search', () => {
+    // The panes of the overrides editor scroll on their own, so the values step is
+    // made to fit the wizard (see the `scroll__container--panes` styles).
+    describe('scroll container of the values step', () => {
       const mountValuesStep = (data: Record<string, any>) => mountInstall({
         data: () => ({
           value:            { metadata: { name: '', namespace: '' } },
@@ -700,10 +700,10 @@ describe('page: Install', () => {
         },
       });
 
-      it('lets the page scroll when the overrides editor is shown', () => {
+      it('fits the step to the wizard when the overrides editor is shown', () => {
         const wrapper = mountValuesStep({});
 
-        expect(wrapper.find('.scroll__container').classes()).toContain('scroll__container--page');
+        expect(wrapper.find('.scroll__container').classes()).toContain('scroll__container--panes');
       });
 
       it.each([
@@ -716,7 +716,7 @@ describe('page: Install', () => {
           preFormYamlOption: 'FORM', formYamlOption: 'FORM', ...data
         });
 
-        expect(wrapper.find('.scroll__container').classes()).not.toContain('scroll__container--page');
+        expect(wrapper.find('.scroll__container').classes()).not.toContain('scroll__container--panes');
       });
 
       it('lets a click in the wizard focus it, so keyboard scrolling reaches it', () => {

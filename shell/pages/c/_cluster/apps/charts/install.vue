@@ -2042,7 +2042,7 @@ export default {
 
         <div
           class="scroll__container"
-          :class="{ 'scroll__container--page': showOverridesEditor }"
+          :class="{ 'scroll__container--panes': showOverridesEditor }"
         >
           <div class="scroll__content">
             <!-- Values (as Custom Component in ./shell/charts/) -->
@@ -2452,22 +2452,34 @@ export default {
       padding: 2px;
     }
 
-    // These boxes grow with their content, so the wizard is what scrolls. The
-    // defaults search is sticky, and sticky only works when no box between it
-    // and the wizard sets an overflow.
-    &__container--page, &__container--page &__content {
+
+    // The chart defaults and overrides panes scroll on their own, so these boxes
+    // don't need to.
+    &__container--panes, &__container--panes &__content {
       overflow: visible;
+    }
+
+    // The wizard's footer also covers the page's bottom padding, so only the rest
+    // of its height needs clearing. The editors keep their own space under them for
+    // the "press Esc" hint.
+    &__container--panes {
+      margin-bottom: calc($footer-height - $space-m);
     }
   }
 
-  // `clip` still clips, but unlike `hidden` it doesn't stop the sticky search.
-  :deep(.step-container__step:has(.scroll__container--page)) {
-    overflow: clip;
+  // The values step fills the wizard, so the panes get its height rather than grow
+  // with their documents. The wizard doesn't give its steps a height (the box
+  // around them is a plain block), so that box is made to fill it here.
+  :deep(div:has(> .step-container__step > .scroll__container--panes)) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   }
 
-  // Lets the sticky overrides pane size itself to the scroll box with `100cqh`.
-  :deep(.step-container:has(.scroll__container--page)) {
-    container-type: size;
+  // Don't shrink the step below the smallest height of the panes, so on a short
+  // screen the wizard scrolls to them rather than cutting them off.
+  :deep(.step-container__step:has(> .scroll__container--panes)) {
+    min-height: min-content;
   }
 
   :deep() .yaml-editor {

@@ -411,6 +411,9 @@ onBeforeUnmount(() => {
   .values-panes {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    // The bodies take the height left under the headers, and each editor scrolls
+    // inside it rather than growing the page.
+    grid-template-rows: auto minmax(0, 1fr);
     column-gap: var(--gap-lg);
     min-height: 0;
 
@@ -424,12 +427,26 @@ onBeforeUnmount(() => {
       min-width: 0;
       min-height: 0;
 
-      // Size each body to its own content so neither is stretched by the taller one.
       &__body {
         display: flex;
         flex-direction: column;
-        align-self: start;
         min-height: 0;
+      }
+
+      // Pass the height down to CodeMirror, whose own scroller then scrolls the document.
+      &__editor, &__editor :deep(.code-mirror), &__editor :deep(.codemirror-container) {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+
+      // The document doesn't count towards the size of the pane, so a long one
+      // scrolls rather than stretches it. When there isn't room the editor still
+      // keeps this height, and the page scrolls instead.
+      &__editor {
+        contain: size;
+        min-height: 200px;
       }
 
       &__header {
@@ -462,32 +479,14 @@ onBeforeUnmount(() => {
         :deep(.codemirror-container .cm-gutters) {
           background-color: transparent;
         }
-
-        // Stays in view next to the chart defaults while the page scrolls, for
-        // example to a search match. A long overrides document scrolls inside the
-        // pane instead, so its end can still be reached. `100cqh` is the height of
-        // the page's scroll box when the page makes it a size container, and the
-        // screen height otherwise.
-        .values-pane__body {
-          // A block, so the editor keeps its full height and scrolls rather than shrinks.
-          display: block;
-          position: sticky;
-          top: 0;
-          max-height: 100cqh;
-          overflow-y: auto;
-        }
       }
     }
   }
 
   .values-search {
-    // Stays in view while the page scrolls through a long document, above the
-    // editor (whose container has `z-index: 0`).
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    // Holds the absolutely placed addons
+    position: relative;
     padding-bottom: 8px;
-    background-color: var(--body-bg);
 
     // Same spot and colour as the clear button that replaces it
     &__icon {

@@ -70,7 +70,7 @@ const searchMatchHighlight = ViewPlugin.fromClass(class {
 
 const yamlSearchExtension: Extension = [
   searchMatchHighlight,
-  // Center the match, so it isn't hidden under a sticky search box above the editor
+  // Center the match, so the lines around it show too, not just the match at an edge
   search({ scrollToMatch: (range) => EditorView.scrollIntoView(range, { y: 'center' }) }),
 ];
 

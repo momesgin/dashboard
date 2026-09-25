@@ -1471,10 +1471,10 @@ catalog:
       valuesYaml: Edit YAML
       diff: Compare Changes
       chartDefaults:
-        label: Chart defaults
-        hint: Every setting the chart ships with. Edit any value here and the change appears on the right. Deleting a line keeps the chart default. To remove a setting, set its value to null.
+        label: Chart values
+        hint: Changes appear on the right. Deleting a key keeps its default, and setting it to null removes it.
       overrides:
-        label: Your overrides
+        label: Your values
         hint: Only these values override the chart defaults and are saved.
     slideIn:
       dock: Dock to shell

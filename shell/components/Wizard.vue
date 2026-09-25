@@ -538,7 +538,7 @@ $spacer: 10px;
   display: flex;
   align-content: space-between;
   align-items: center;
-  margin-bottom: 2*$spacer;
+  margin-bottom: 16px;
 
   border-bottom: var(--header-border-size) solid var(--header-border);
 
