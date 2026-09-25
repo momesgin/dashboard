@@ -1177,4 +1177,56 @@ describe('page: Install', () => {
       expect(wrapper.find('.slideIn').classes()).not.toContain('slideIn__show');
     });
   });
+
+  describe('step2Description (values step banner)', () => {
+    const appValuesKey = 'catalog.install.steps.helmValues.description';
+
+    const step2Description = ({ descriptionKey = appValuesKey, currentVersion, targetVersion = '110.0.0' }: { descriptionKey?: string, currentVersion?: string, targetVersion?: string }) => {
+      const t = jest.fn((key: string, args?: Record<string, string>) => (args?.from ? `${ key } ${ args.from } ${ args.to }` : key));
+      const withFallback = jest.fn((key: string) => key);
+      const description = (Install as any).computed.step2Description.call({
+        steps:      [{ name: 'helmValues', descriptionKey }],
+        stepValues: { descriptionKey: appValuesKey },
+        action:     { name: 'install' },
+        existing:   currentVersion ? {} : null,
+        $store:     { getters: { 'i18n/withFallback': withFallback } },
+        currentVersion,
+        targetVersion,
+        t,
+      });
+
+      return { description, t };
+    };
+
+    it('explains that only the overrides are saved when installing', () => {
+      const { t } = step2Description({});
+
+      expect(t).toHaveBeenCalledWith('catalog.install.steps.helmValues.overridesDescription.install', {}, true);
+    });
+
+    // The banner shows it as text, so an escaped apostrophe would show as `&#39;`
+    it('asks for the upgrade text unescaped', () => {
+      const { t } = step2Description({ currentVersion: '109.0.0' });
+
+      expect(t).toHaveBeenCalledWith('catalog.install.steps.helmValues.overridesDescription.upgrade', { from: '109.0.0', to: '110.0.0' }, true);
+    });
+
+    it('names both versions when an installed app changes version', () => {
+      const { description } = step2Description({ currentVersion: '109.0.0' });
+
+      expect(description).toBe('catalog.install.steps.helmValues.overridesDescription.upgrade 109.0.0 110.0.0');
+    });
+
+    it('explains that only the overrides are saved when an installed app keeps its version', () => {
+      const { description } = step2Description({ currentVersion: '110.0.0' });
+
+      expect(description).toBe('catalog.install.steps.helmValues.overridesDescription.install');
+    });
+
+    it('keeps the cluster template description', () => {
+      const { description } = step2Description({ descriptionKey: 'catalog.install.steps.clusterTplValues.description' });
+
+      expect(description).toBe('catalog.install.steps.clusterTplValues.description');
+    });
+  });
 });

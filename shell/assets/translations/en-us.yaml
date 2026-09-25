@@ -1514,6 +1514,9 @@ catalog:
         label: Values
         subtext: Change how the App works
         description: Configure Values used by Helm that help define the App.
+        overridesDescription:
+          install: Only your values that differ from the chart defaults are saved. They persist on every upgrade.
+          upgrade: Your values from {from} are applied on top of the {to} defaults, just like helm upgrade does.
         chartInfo:
           button: View Chart Info
           label: Chart Info
