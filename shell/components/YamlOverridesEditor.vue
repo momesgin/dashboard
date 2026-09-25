@@ -320,79 +320,81 @@ defineExpose({ updateOverrides });
           {{ chartDefaultsHint }}
         </p>
       </div>
-      <div
-        class="values-search"
-        :class="{ 'values-search--active': !!activeSearchQuery }"
-      >
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="input-sm values-search__input"
-          :placeholder="t('yamlOverridesEditor.search.placeholder')"
-          :aria-label="t('yamlOverridesEditor.search.ariaLabel')"
-          :data-testid="searchTestid()"
-          @keydown.esc.prevent="clearSearch"
-          @keydown.enter.exact.prevent="goToMatch('next')"
-          @keydown.shift.enter.exact.prevent="goToMatch('previous')"
+      <div class="values-pane__body">
+        <div
+          class="values-search"
+          :class="{ 'values-search--active': !!activeSearchQuery }"
         >
-        <div class="values-search__addons">
-          <button
-            v-if="matchCount"
-            type="button"
-            class="btn role-link values-search__button"
-            :aria-label="t('yamlOverridesEditor.search.next')"
-            :data-testid="`${ searchTestid() }-next`"
-            @click="goToMatch('next')"
+          <input
+            v-model="searchQuery"
+            type="search"
+            class="input-sm values-search__input"
+            :placeholder="t('yamlOverridesEditor.search.placeholder')"
+            :aria-label="t('yamlOverridesEditor.search.ariaLabel')"
+            :data-testid="searchTestid()"
+            @keydown.esc.prevent="clearSearch"
+            @keydown.enter.exact.prevent="goToMatch('next')"
+            @keydown.shift.enter.exact.prevent="goToMatch('previous')"
           >
-            <i class="icon icon-chevron-down" />
-          </button>
-          <!-- Always rendered so screen readers announce the count when it changes -->
-          <span
-            class="values-search__count"
-            aria-live="polite"
-            :data-testid="`${ searchTestid() }-count`"
-          >
-            <template v-if="currentMatch">{{ t('yamlOverridesEditor.search.position', { current: currentMatch, total: matchCount }) }}</template>
-            <template v-else-if="activeSearchQuery">{{ t('yamlOverridesEditor.search.matches', { count: matchCount }) }}</template>
-          </span>
-          <button
-            v-if="matchCount"
-            type="button"
-            class="btn role-link values-search__button"
-            :aria-label="t('yamlOverridesEditor.search.previous')"
-            :data-testid="`${ searchTestid() }-previous`"
-            @click="goToMatch('previous')"
-          >
-            <i class="icon icon-chevron-up" />
-          </button>
-          <!-- Like the charts page search, the magnifier turns into a clear button once something is typed -->
-          <button
-            v-if="searchQuery"
-            type="button"
-            class="btn role-link values-search__button"
-            :aria-label="t('yamlOverridesEditor.search.clear')"
-            :data-testid="`${ searchTestid() }-clear`"
-            @click="clearSearch"
-          >
-            <i class="icon icon-close" />
-          </button>
-          <i
-            v-else
-            class="icon icon-search values-search__icon"
-          />
+          <div class="values-search__addons">
+            <button
+              v-if="matchCount"
+              type="button"
+              class="btn role-link values-search__button"
+              :aria-label="t('yamlOverridesEditor.search.next')"
+              :data-testid="`${ searchTestid() }-next`"
+              @click="goToMatch('next')"
+            >
+              <i class="icon icon-chevron-down" />
+            </button>
+            <!-- Always rendered so screen readers announce the count when it changes -->
+            <span
+              class="values-search__count"
+              aria-live="polite"
+              :data-testid="`${ searchTestid() }-count`"
+            >
+              <template v-if="currentMatch">{{ t('yamlOverridesEditor.search.position', { current: currentMatch, total: matchCount }) }}</template>
+              <template v-else-if="activeSearchQuery">{{ t('yamlOverridesEditor.search.matches', { count: matchCount }) }}</template>
+            </span>
+            <button
+              v-if="matchCount"
+              type="button"
+              class="btn role-link values-search__button"
+              :aria-label="t('yamlOverridesEditor.search.previous')"
+              :data-testid="`${ searchTestid() }-previous`"
+              @click="goToMatch('previous')"
+            >
+              <i class="icon icon-chevron-up" />
+            </button>
+            <!-- Like the charts page search, the magnifier turns into a clear button once something is typed -->
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="btn role-link values-search__button"
+              :aria-label="t('yamlOverridesEditor.search.clear')"
+              :data-testid="`${ searchTestid() }-clear`"
+              @click="clearSearch"
+            >
+              <i class="icon icon-close" />
+            </button>
+            <i
+              v-else
+              class="icon icon-search values-search__icon"
+            />
+          </div>
         </div>
+        <YamlEditor
+          ref="defaultsEditor"
+          class="values-pane__editor"
+          :value="defaultsContent"
+          :component-testid="defaultsTestid()"
+          :scrolling="true"
+          :editor-mode="editorMode"
+          :hide-preview-buttons="true"
+          @update:value="onDefaultsInput"
+          @onReady="onDefaultsReady"
+        />
       </div>
-      <YamlEditor
-        ref="defaultsEditor"
-        class="values-pane__editor"
-        :value="defaultsContent"
-        :component-testid="defaultsTestid()"
-        :scrolling="true"
-        :editor-mode="editorMode"
-        :hide-preview-buttons="true"
-        @update:value="onDefaultsInput"
-        @onReady="onDefaultsReady"
-      />
     </div>
     <div
       class="values-pane values-pane--overrides"
@@ -407,34 +409,46 @@ defineExpose({ updateOverrides });
           {{ overridesHint }}
         </p>
       </div>
-      <YamlEditor
-        ref="overridesEditor"
-        class="values-pane__editor"
-        :value="overridesContent"
-        :component-testid="overridesTestid()"
-        :scrolling="true"
-        :editor-mode="editorMode"
-        :hide-preview-buttons="true"
-        @update:value="onOverridesInput"
-      />
+      <div class="values-pane__body">
+        <YamlEditor
+          ref="overridesEditor"
+          class="values-pane__editor"
+          :value="overridesContent"
+          :component-testid="overridesTestid()"
+          :scrolling="true"
+          :editor-mode="editorMode"
+          :hide-preview-buttons="true"
+          @update:value="onOverridesInput"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
   .values-panes {
-    display: flex;
-    gap: var(--gap-lg);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--gap-lg);
     min-height: 0;
-    // Size each pane to its own content so neither is stretched by the taller one.
-    align-items: flex-start;
 
+    // Both panes share the rows of the grid, so the headers take the same height
+    // and the overrides editor starts level with the chart defaults search.
     .values-pane {
-      display: flex;
-      flex-direction: column;
-      flex: 1 1 50%;
+      display: grid;
+      grid-row: span 2;
+      grid-template-rows: subgrid;
+      row-gap: 0;
       min-width: 0;
       min-height: 0;
+
+      // Size each body to its own content so neither is stretched by the taller one.
+      &__body {
+        display: flex;
+        flex-direction: column;
+        align-self: start;
+        min-height: 0;
+      }
 
       &__header {
         margin-bottom: 16px;
@@ -450,9 +464,30 @@ defineExpose({ updateOverrides });
       }
 
       // Every line here is an override, so the whole editor gets the tint of the
-      // changed lines in the chart defaults pane.
-      &--overrides :deep(.codemirror-container .rc-code-mirror) {
-        --rc-cm-bg: var(--info-banner-bg);
+      // changed lines in the chart defaults pane. The tint is see-through, so the
+      // gutter lets the editor's tint show instead of painting it a second time.
+      &--overrides {
+        :deep(.codemirror-container .rc-code-mirror) {
+          --rc-cm-bg: var(--info-banner-bg);
+        }
+
+        :deep(.codemirror-container .cm-gutters) {
+          background-color: transparent;
+        }
+
+        // Stays in view next to the chart defaults while the page scrolls, for
+        // example to a search match. A long overrides document scrolls inside the
+        // pane instead, so its end can still be reached. `100cqh` is the height of
+        // the page's scroll box when the page makes it a size container, and the
+        // screen height otherwise.
+        .values-pane__body {
+          // A block, so the editor keeps its full height and scrolls rather than shrinks.
+          display: block;
+          position: sticky;
+          top: 0;
+          max-height: 100cqh;
+          overflow-y: auto;
+        }
       }
     }
   }

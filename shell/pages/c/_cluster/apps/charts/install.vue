@@ -2472,6 +2472,11 @@ export default {
     overflow: clip;
   }
 
+  // Lets the sticky overrides pane size itself to the scroll box with `100cqh`.
+  :deep(.step-container:has(.scroll__container--page)) {
+    container-type: size;
+  }
+
   :deep() .yaml-editor {
     flex: 1
   }
