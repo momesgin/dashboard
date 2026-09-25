@@ -718,6 +718,12 @@ describe('page: Install', () => {
 
         expect(wrapper.find('.scroll__container').classes()).not.toContain('scroll__container--page');
       });
+
+      it('lets a click in the wizard focus it, so keyboard scrolling reaches it', () => {
+        const wrapper = mountValuesStep({});
+
+        expect(wrapper.find('.wizard').attributes('tabindex')).toBe('-1');
+      });
     });
   });
 

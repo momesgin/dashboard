@@ -1713,6 +1713,7 @@ export default {
   >
     <Wizard
       v-if="value"
+      tabindex="-1"
       :steps="steps"
       :errors="errors"
       :edit-first-step="true"
