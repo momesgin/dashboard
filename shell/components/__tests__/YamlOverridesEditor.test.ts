@@ -284,6 +284,7 @@ describe('component: YamlOverridesEditor', () => {
     const clearButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-clear"]');
     const nextButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-next"]');
     const previousButton = (wrapper: any) => wrapper.find('[data-testid="values-defaults-search-previous"]');
+    const searchIcon = (wrapper: any) => wrapper.find('.values-search__icon');
 
     const search = async(wrapper: any, query: string) => {
       await searchInput(wrapper).setValue(query);
@@ -344,12 +345,33 @@ describe('component: YamlOverridesEditor', () => {
       expect(leftSearch).toHaveBeenCalledWith('sachet');
     });
 
-    it('shows a clear button only when there are matches', async() => {
+    it('shows the search icon and no clear button before anything is typed', () => {
+      const wrapper = mountEditor();
+
+      expect(searchIcon(wrapper).exists()).toBe(true);
+      expect(clearButton(wrapper).exists()).toBe(false);
+    });
+
+    it.each([
+      ['a short query', 'en'],
+      ['a query with matches', 'sachet'],
+      ['a query with no matches', 'nothing-here'],
+    ])('swaps the search icon for a clear button after typing %s', async(_, query) => {
+      const wrapper = mountEditor();
+
+      await search(wrapper, query);
+
+      expect(clearButton(wrapper).exists()).toBe(true);
+      expect(searchIcon(wrapper).exists()).toBe(false);
+    });
+
+    it('shows the search icon again after the search is cleared', async() => {
       const wrapper = mountEditor();
 
       await search(wrapper, 'sachet');
+      await clearButton(wrapper).trigger('click');
 
-      expect(clearButton(wrapper).exists()).toBe(true);
+      expect(searchIcon(wrapper).exists()).toBe(true);
     });
 
     it.each([
@@ -447,7 +469,7 @@ describe('component: YamlOverridesEditor', () => {
       expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.position {"current":2,"total":2}');
     });
 
-    it('shows no matches, no highlight and no clear button when nothing matches', async() => {
+    it('shows no matches and no highlight when nothing matches', async() => {
       const wrapper = mountEditor();
       const leftSearch = jest.spyOn(editors(wrapper).left, 'setSearchHighlight');
 
@@ -455,7 +477,6 @@ describe('component: YamlOverridesEditor', () => {
 
       expect(leftSearch).toHaveBeenLastCalledWith('');
       expect(countLabel(wrapper).text()).toStrictEqual('yamlOverridesEditor.search.matches {"count":0}');
-      expect(clearButton(wrapper).exists()).toBe(false);
     });
 
     it('clears the search when the clear button is clicked', async() => {

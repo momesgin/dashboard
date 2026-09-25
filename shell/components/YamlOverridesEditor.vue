@@ -324,7 +324,6 @@ defineExpose({ updateOverrides });
         class="values-search"
         :class="{ 'values-search--active': !!activeSearchQuery }"
       >
-        <i class="icon icon-search values-search__icon" />
         <input
           v-model="searchQuery"
           type="search"
@@ -366,8 +365,9 @@ defineExpose({ updateOverrides });
           >
             <i class="icon icon-chevron-up" />
           </button>
+          <!-- Like the charts page search, the magnifier turns into a clear button once something is typed -->
           <button
-            v-if="matchCount"
+            v-if="searchQuery"
             type="button"
             class="btn role-link values-search__button"
             :aria-label="t('yamlOverridesEditor.search.clear')"
@@ -376,6 +376,10 @@ defineExpose({ updateOverrides });
           >
             <i class="icon icon-close" />
           </button>
+          <i
+            v-else
+            class="icon icon-search values-search__icon"
+          />
         </div>
       </div>
       <YamlEditor
@@ -462,21 +466,23 @@ defineExpose({ updateOverrides });
     padding-bottom: 8px;
     background-color: var(--body-bg);
 
+    // Same spot and colour as the clear button that replaces it
     &__icon {
-      position: absolute;
-      // Centered on the input, above the bottom padding.
-      top: calc(50% - 4px);
-      left: 12px;
-      transform: translateY(-50%);
-      color: var(--input-placeholder);
-      pointer-events: none;
+      padding: 4px;
+      color: var(--muted);
+    }
+
+    // Same size as the icon of the charts page search
+    &__icon, &__button .icon-close {
+      font-size: 16px;
     }
 
     &__input {
       width: 100%;
-      padding-left: 36px;
+      // Make room for the icon or the clear button
+      padding-right: 36px;
 
-      // We show our own clear button, only when there are matches.
+      // We show our own clear button, so it looks the same in every browser.
       &::-webkit-search-cancel-button {
         -webkit-appearance: none;
       }
