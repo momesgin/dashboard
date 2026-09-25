@@ -169,16 +169,50 @@ describe('component: YamlOverridesEditor', () => {
   });
 
   describe('editing the chart-defaults (left) pane', () => {
-    it('derives the overrides from the edited full document and emits them', () => {
+    it('derives the overrides from the edited full document and emits them', async() => {
       const wrapper = mountEditor({ value: '' });
       // The user changes a shipped default (replicas 2 -> 5) in the full document.
       const edited = 'replicas: 5\nsachet:\n  enabled: true\n';
 
       editors(wrapper).left.$emit('update:value', edited);
+      await settle(wrapper);
 
       const expected = overridesFromValues(defaults, { replicas: 5, sachet: { enabled: true } });
 
       expect(wrapper.emitted('update:value')).toStrictEqual([[expected]]);
+    });
+
+    it('waits for the user to stop typing before deriving the overrides', async() => {
+      const wrapper = mountEditor({ value: '' });
+      const { left } = editors(wrapper);
+
+      left.$emit('update:value', 'replicas: 3\n');
+      left.$emit('update:value', 'replicas: 4\n');
+
+      expect(wrapper.emitted('update:value')).toBeUndefined();
+
+      await settle(wrapper);
+
+      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 4\n']]);
+    });
+
+    it('does not emit when an edit keeps the same overrides', async() => {
+      const wrapper = mountEditor();
+
+      // A comment changes the text, but not the values
+      editors(wrapper).left.$emit('update:value', `# note\n${ mergeOverridesRawText(defaults, 'replicas: 5\n') }`);
+      await settle(wrapper);
+
+      expect(wrapper.emitted('update:value')).toBeUndefined();
+    });
+
+    it('emits a waiting edit when it is unmounted', () => {
+      const wrapper = mountEditor({ value: '' });
+
+      editors(wrapper).left.$emit('update:value', 'replicas: 5\n');
+      wrapper.unmount();
+
+      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 5\n']]);
     });
 
     it('pushes the derived overrides into the overrides editor', async() => {
@@ -207,65 +241,69 @@ describe('component: YamlOverridesEditor', () => {
       expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 5\n']]);
     });
 
-    it('does not save a deleted default key as null', () => {
+    it('does not save a deleted default key as null', async() => {
       const wrapper = mountEditor({ value: '' });
 
       // The user deletes the whole `sachet` block and changes replicas
       editors(wrapper).left.$emit('update:value', 'replicas: 5\n');
+      await settle(wrapper);
 
       expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 5\n']]);
     });
 
-    it('does not emit while the edited YAML is mid-edit/invalid', () => {
+    it('does not emit while the edited YAML is mid-edit/invalid', async() => {
       const wrapper = mountEditor({ value: '' });
 
       editors(wrapper).left.$emit('update:value', 'replicas: 5\n  bad: :indent');
+      await settle(wrapper);
 
       expect(wrapper.emitted('update:value')).toBeUndefined();
     });
 
-    it('does not derive overrides from a bare scalar', () => {
+    it('does not derive overrides from a bare scalar', async() => {
       const wrapper = mountEditor({ value: '' });
 
       editors(wrapper).left.$emit('update:value', 'just a string');
+      await settle(wrapper);
 
       expect(wrapper.emitted('update:value')).toBeUndefined();
     });
   });
 
-  describe('switching panes before the sync runs', () => {
-    it('updates the overrides editor as soon as it gets focus after a chart-defaults edit', () => {
+  describe('leaving a pane before the sync runs', () => {
+    it('emits a chart-defaults edit and updates the overrides editor as soon as focus leaves the pane', () => {
       const wrapper = mountEditor({ value: '' });
       const { left, right } = editors(wrapper);
       const rightUpdate = jest.spyOn(right, 'updateValue');
 
       left.$emit('update:value', 'replicas: 5\nsachet:\n  enabled: true\n');
-      // Focus moves to the overrides pane before the debounce fires
-      wrapper.find('[data-testid="values-overrides-pane"]').trigger('focusin');
+      // Focus leaves the chart-defaults pane (e.g. for the other pane or a button) before the debounce fires
+      wrapper.find('[data-testid="values-defaults-pane"]').trigger('focusout');
 
+      expect(wrapper.emitted('update:value')).toStrictEqual([['replicas: 5\n']]);
       expect(rightUpdate).toHaveBeenCalledWith('replicas: 5\n');
     });
 
-    it('updates the chart-defaults editor as soon as it gets focus after an overrides edit', () => {
+    it('updates the chart-defaults editor as soon as focus leaves the overrides pane', () => {
       const wrapper = mountEditor();
       const { left, right } = editors(wrapper);
       const leftUpdate = jest.spyOn(left, 'updateValue');
 
       right.$emit('update:value', 'replicas: 9\n');
-      // Focus moves to the chart-defaults pane before the debounce fires
-      wrapper.find('[data-testid="values-defaults-pane"]').trigger('focusin');
+      // Focus leaves the overrides pane before the debounce fires
+      wrapper.find('[data-testid="values-overrides-pane"]').trigger('focusout');
 
       expect(leftUpdate).toHaveBeenCalledWith(mergeOverridesRawText(defaults, 'replicas: 9\n'));
     });
 
-    it('does not push into either editor when focus moves with no pending edit', () => {
+    it('does not push into either editor when focus leaves with no pending edit', () => {
       const wrapper = mountEditor();
       const { left, right } = editors(wrapper);
       const leftUpdate = jest.spyOn(left, 'updateValue');
       const rightUpdate = jest.spyOn(right, 'updateValue');
 
-      wrapper.find('[data-testid="values-defaults-pane"]').trigger('focusin');
-      wrapper.find('[data-testid="values-overrides-pane"]').trigger('focusin');
+      wrapper.find('[data-testid="values-defaults-pane"]').trigger('focusout');
+      wrapper.find('[data-testid="values-overrides-pane"]').trigger('focusout');
 
       expect(leftUpdate).not.toHaveBeenCalled();
       expect(rightUpdate).not.toHaveBeenCalled();

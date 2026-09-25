@@ -21,14 +21,15 @@ import type { YamlSearchMatches } from '@shell/utils/yaml-search';
  * (bound to `value` via v-model). Editing the LEFT pane diffs it back against the
  * defaults to recompute the overrides. Only the overrides are ever emitted/saved.
  *
- * Pushing the text into the *other* pane (merge + dump) and re-tinting are
- * debounced, and done via the editor's ref: YamlEditor doesn't react to its
- * `value` prop after mount. Search and tint talk to the chart-defaults CodeMirror
- * view directly.
+ * The work that grows with the document is debounced: deriving the overrides
+ * from an edited LEFT pane (parse + diff), pushing the text into the *other* pane
+ * (merge + dump) and re-tinting. The text is pushed via the editor's ref, since
+ * YamlEditor doesn't react to its `value` prop after mount. Search and tint talk
+ * to the chart-defaults CodeMirror view directly.
  */
 
-// Delay before the opposite pane (and the decorations) recompute after the last
-// keystroke, so the pane being typed in stays responsive on large values files.
+// Delay before the overrides, the opposite pane and the decorations recompute after
+// the last keystroke, so the pane being typed in stays responsive on large values files.
 const SYNC_DEBOUNCE_MS = 400;
 
 // Line-background class for the changed lines. It's the same tint as the overrides pane.
@@ -128,7 +129,35 @@ function onOverridesInput(value: string) {
 
 // --- Editing the LEFT (chart defaults) pane ---------------------------------
 
+/**
+ * Derive the overrides from the edited LEFT pane and emit them. Mid-edit text that
+ * isn't a valid mapping keeps the last good overrides.
+ */
+function deriveOverrides() {
+  let parsed: unknown;
+
+  try {
+    parsed = jsyaml.load(defaultsContent.value);
+  } catch (e) {
+    return;
+  }
+
+  // Helm values must be a mapping, so a bare scalar/array is still mid-edit
+  if (parsed !== undefined && parsed !== null && !isPlainObject(parsed)) {
+    return;
+  }
+
+  // A key the user deleted here keeps its default rather than being saved as null.
+  const overrides = overridesFromEditedValues(props.defaults || {}, (parsed as object) || {});
+
+  if (overrides !== overridesContent.value) {
+    overridesContent.value = overrides;
+    emit('update:value', overrides);
+  }
+}
+
 function syncFromDefaults() {
+  deriveOverrides();
   overridesEditor.value?.updateValue(overridesContent.value);
   applyDefaultsDecorations();
 }
@@ -141,46 +170,22 @@ function onDefaultsInput(value: string) {
   }
 
   defaultsContent.value = value;
-
-  let parsed: unknown;
-
-  try {
-    parsed = jsyaml.load(value);
-  } catch (e) {
-    // Mid-edit invalid YAML: keep the last good overrides, just refresh the tint.
-    queueSyncFromDefaults();
-
-    return;
-  }
-
-  // Helm values must be a mapping; a bare scalar/array is mid-edit - don't derive
-  // overrides from it, but still re-tint what's there.
-  if (parsed !== undefined && parsed !== null && !isPlainObject(parsed)) {
-    queueSyncFromDefaults();
-
-    return;
-  }
-
-  // A key the user deleted here keeps its default rather than being saved as null.
-  const overrides = overridesFromEditedValues(props.defaults || {}, (parsed as object) || {});
-
-  overridesContent.value = overrides;
-  emit('update:value', overrides);
   queueSyncFromDefaults();
 }
 
-// --- Switching panes --------------------------------------------------------
+// --- Leaving a pane ---------------------------------------------------------
 
 // A sync is only ever pending for the pane the user was last typing in. Run it
-// right away when focus moves to the other pane, so that pane is up to date before
-// the user types in it. Otherwise their next keystroke would be based on stale
-// text and overwrite the edit that was still waiting to sync.
-function onDefaultsFocus() {
-  queueSyncFromOverrides.flush();
+// right away when focus leaves that pane. Then the other pane is up to date before
+// the user types in it, so their next keystroke doesn't overwrite the edit that was
+// still waiting. And the parent has the latest overrides before a button (e.g.
+// Install) is clicked.
+function onDefaultsBlur() {
+  queueSyncFromDefaults.flush();
 }
 
-function onOverridesFocus() {
-  queueSyncFromDefaults.flush();
+function onOverridesBlur() {
+  queueSyncFromOverrides.flush();
 }
 
 // --- Searching the LEFT (chart defaults) pane -------------------------------
@@ -274,8 +279,9 @@ function onDefaultsReady(view: EditorView) {
 }
 
 onBeforeUnmount(() => {
+  // Don't lose a chart-defaults edit that is still waiting to be emitted
+  queueSyncFromDefaults.flush();
   queueSyncFromOverrides.cancel();
-  queueSyncFromDefaults.cancel();
   queueSearch.cancel();
   defaultsView = null;
 });
@@ -286,7 +292,7 @@ onBeforeUnmount(() => {
     <div
       class="values-pane"
       :data-testid="defaultsPaneTestid()"
-      @focusin="onDefaultsFocus"
+      @focusout="onDefaultsBlur"
     >
       <div class="values-pane__header">
         <h4 class="values-pane__title">
@@ -375,7 +381,7 @@ onBeforeUnmount(() => {
     <div
       class="values-pane values-pane--overrides"
       :data-testid="overridesPaneTestid()"
-      @focusin="onOverridesFocus"
+      @focusout="onOverridesBlur"
     >
       <div class="values-pane__header">
         <h4 class="values-pane__title">
