@@ -711,6 +711,10 @@ $spacer: 10px;
 
   &__step {
     overflow: hidden;
+    // Room for the focus outline (2px wide, 2px away) of a control at the edge,
+    // which this box would clip. The margin keeps the content in place.
+    padding-inline: 4px;
+    margin-inline: -4px;
     display: flex;
     flex-direction: column;
     flex: 1;

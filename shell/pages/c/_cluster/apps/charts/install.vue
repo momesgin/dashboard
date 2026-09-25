@@ -2281,6 +2281,8 @@ export default {
   $title-height: 50px;
   $padding: 5px;
   $slideout-width: 35%;
+  // A focus outline is 2px wide and 2px away from its control.
+  $focus-outline-room: 4px;
 
   .install-steps {
     height: 0;
@@ -2497,10 +2499,14 @@ export default {
     flex: 1
   }
 
+// The wizard scrolls here, so it clips its content at its edges, which cut off the
+// focus outline of a control at the edge, like the chart name link at the top. The
+// padding gives the outline room, and the margin keeps the content in place.
 .outer-container {
   display: flex;
   flex-direction: column;
-  padding: 0;
+  padding: $focus-outline-room $focus-outline-room 0;
+  margin: (-$focus-outline-room) (-$focus-outline-room) 0;
   overflow: auto;
 }
 
