@@ -3021,7 +3021,7 @@ codeMirror:
 
 yamlOverridesEditor:
   search:
-    placeholder: Filter values…
+    placeholder: Search values…
     ariaLabel: Search the chart defaults
     matches: |-
       {count, plural,
