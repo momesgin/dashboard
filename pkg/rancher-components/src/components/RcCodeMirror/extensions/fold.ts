@@ -57,56 +57,85 @@ export const indentFoldService: Extension = foldService.of(
   }
 );
 
-/**
- * Folds matching bracket pairs: {}, [], ()
- */
+/** Match positions are cached for each immutable editor state so gutter checks share one scan. */
+const bracketPairs = new WeakMap<EditorState, Map<number, number>>();
+
+function getBracketPairs(state: EditorState): Map<number, number> {
+  const cached = bracketPairs.get(state);
+
+  if (cached) {
+    return cached;
+  }
+
+  const pairs = new Map<number, number>();
+  const braces: number[] = [];
+  const brackets: number[] = [];
+  const parentheses: number[] = [];
+  const text = state.doc.toString();
+
+  for (let pos = 0; pos < text.length; pos++) {
+    switch (text[pos]) {
+    case '{':
+      braces.push(pos);
+      break;
+    case '}':
+      if (braces.length) {
+        pairs.set(braces.pop()!, pos);
+      }
+      break;
+    case '[':
+      brackets.push(pos);
+      break;
+    case ']':
+      if (brackets.length) {
+        pairs.set(brackets.pop()!, pos);
+      }
+      break;
+    case '(':
+      parentheses.push(pos);
+      break;
+    case ')':
+      if (parentheses.length) {
+        pairs.set(parentheses.pop()!, pos);
+      }
+      break;
+    }
+  }
+
+  bracketPairs.set(state, pairs);
+
+  return pairs;
+}
+
+/** Folds matching bracket pairs: {}, [], (). */
 export const bracketFoldService: Extension = foldService.of(
   (state: EditorState, lineStart: number): { from: number; to: number } | null => {
     const line = state.doc.lineAt(lineStart);
     const text = line.text;
-
-    const openBrackets: Record<string, string> = {
-      '{': '}', '[': ']', '(': ')'
-    };
-    let openChar: string | null = null;
     let openPos = -1;
 
     for (let i = 0; i < text.length; i++) {
       const ch = text.charAt(i);
 
-      if (ch in openBrackets) {
-        openChar = ch;
+      if (ch === '{' || ch === '[' || ch === '(') {
         openPos = line.from + i;
         break;
       }
     }
 
-    if (!openChar || openPos === -1) {
+    if (openPos === -1) {
       return null;
     }
 
-    const closeChar = openBrackets[openChar];
-    let depth = 0;
+    const closePos = getBracketPairs(state).get(openPos);
 
-    for (let pos = openPos; pos < state.doc.length; pos++) {
-      const ch = state.doc.sliceString(pos, pos + 1);
-
-      if (ch === openChar) {
-        depth++;
-      } else if (ch === closeChar) {
-        depth--;
-        if (depth === 0) {
-          const closeLine = state.doc.lineAt(pos);
-
-          if (closeLine.number > line.number) {
-            return { from: line.to, to: closeLine.from - 1 };
-          }
-          break;
-        }
-      }
+    if (closePos === undefined) {
+      return null;
     }
 
-    return null;
+    const closeLine = state.doc.lineAt(closePos);
+
+    return closeLine.number > line.number ? { from: line.to, to: closeLine.from - 1 } : null;
   }
 );
 
@@ -164,33 +193,35 @@ export function foldByLineMatch(pattern: RegExp): Extension {
   });
 }
 
-/** Walks a Key node's ancestor Pairs to reconstruct the full dot-notation path. */
-function getKeyPath(keyNode: SyntaxNode, state: EditorState): string[] {
-  const path: string[] = [state.doc.sliceString(keyNode.from, keyNode.to).trim()];
-  // Key → Pair → BlockMapping → Pair → BlockMapping → ...
-  let cur: SyntaxNode | null = keyNode.parent; // Pair
+/** Walks a Key node's ancestors to reconstruct its path from the document root. */
+function getKeyPath(keyNode: SyntaxNode, state: EditorState): string {
+  const segments: string[] = [];
 
-  while (cur) {
-    cur = cur.parent; // BlockMapping
-    if (!cur) {
-      break;
-    }
-    cur = cur.parent; // parent Pair
-    if (!cur || cur.name !== 'Pair') {
-      break;
-    }
-    const parentKey = cur.firstChild;
+  for (let cur: SyntaxNode | null = keyNode.parent; cur; cur = cur.parent) {
+    if (cur.name === 'Pair') {
+      const key = cur.firstChild;
 
-    if (parentKey?.name === 'Key') {
-      path.unshift(state.doc.sliceString(parentKey.from, parentKey.to).trim());
+      if (key?.name === 'Key') {
+        segments.unshift(state.doc.sliceString(key.from, key.to).trim());
+      }
+    } else if (cur.name === 'Item') {
+      let index = 0;
+
+      for (let sibling = cur.prevSibling; sibling; sibling = sibling.prevSibling) {
+        if (sibling.name === 'Item') {
+          index++;
+        }
+      }
+      segments.unshift(`[${ index }]`);
     }
   }
 
-  return path;
+  return segments.reduce((path, segment) => segment.startsWith('[') ? `${ path }${ segment }` : path ? `${ path }.${ segment }` : segment, '');
 }
 
 /**
- * Declarative fold service: marks the line at the given YAML dot-notation path as foldable.
+ * Declarative fold service: marks the line at the given YAML path as foldable.
+ * Use zero-based indexes for list items, for example `spec.containers[0].resources`.
  * Requires a YAML language extension to be active (uses the lezer syntax tree).
  */
 export function foldByYamlPath(path: string): Extension {
@@ -213,7 +244,7 @@ export function foldByYamlPath(path: string): Extension {
         if (state.doc.sliceString(node.from, node.to).trim() !== lastSegment) {
           return;
         }
-        if (getKeyPath(node.node, state).join('.') === path) {
+        if (getKeyPath(node.node, state) === path) {
           keyNode = node.node;
 
           return false;
@@ -382,7 +413,8 @@ export function foldMatchingLines(view: EditorView, pattern: RegExp): void {
 }
 
 /**
- * Imperative: folds the line at the given YAML dot-notation path. Call in a `ready` handler.
+ * Imperative: folds the line at the given YAML path. List items use zero-based indexes.
+ * Call in a `ready` handler.
  */
 export function foldYamlPath(view: EditorView, path: string): void {
   parseDocument(view);
@@ -405,7 +437,7 @@ export function foldYamlPath(view: EditorView, path: string): void {
       if (state.doc.sliceString(node.from, node.to).trim() !== lastSegment) {
         return;
       }
-      if (getKeyPath(node.node, state).join('.') === path) {
+      if (getKeyPath(node.node, state) === path) {
         targetFrom = state.doc.lineAt(node.from).from;
 
         return false;

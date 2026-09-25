@@ -118,6 +118,25 @@ export const Default: Story = {
   }),
 };
 
+export const ForwardedStyle: Story = {
+  render: (args: any) => ({
+    components: { RcCodeMirror },
+    setup() {
+      const value = ref(yaml);
+
+      return { args, value };
+    },
+    template: `
+      <RcCodeMirror
+        v-bind="args"
+        v-model="value"
+        aria-label="Deployment"
+        style="width: 500px; height: 240px; margin: 16px; padding: 8px; border: 2px solid #737373;"
+      />
+    `,
+  }),
+};
+
 export const Json: Story = {
   ...Default,
   args: { language: 'json' },
@@ -125,6 +144,25 @@ export const Json: Story = {
 
 export const ReadOnly: Story = {
   ...Default,
+  args: { readOnly: true },
+};
+
+export const ReadOnlyKeyboard: Story = {
+  render: (args: any) => ({
+    components: { RcCodeMirror },
+    setup() {
+      const value = ref(yaml);
+
+      return { args, value };
+    },
+    template: `
+      <div style="display: grid; grid-template-rows: auto 240px auto; gap: 8px; width: 500px;">
+        <button type="button">Before editor</button>
+        <RcCodeMirror v-bind="args" v-model="value" aria-label="Read-only deployment" />
+        <button type="button">After editor</button>
+      </div>
+    `,
+  }),
   args: { readOnly: true },
 };
 
